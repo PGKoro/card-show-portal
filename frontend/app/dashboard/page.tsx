@@ -6,9 +6,9 @@ import Link from "next/link";
 export default function DashboardPage() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
+      <h1 className="text-2xl font-semibold">My Account</h1>
       <p className="max-w-md text-gray-600 dark:text-gray-300">
-        Choose a role to preview its dashboard.
+        Choose a role to preview its account.
       </p>
       <div className="flex gap-4">
         <Link

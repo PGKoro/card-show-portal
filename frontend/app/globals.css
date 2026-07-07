@@ -1,8 +1,21 @@
 @import "tailwindcss";
 
+/* Only flip to dark styling when a `.dark` ancestor class is present.
+   Nothing in this app ever adds that class, so every `dark:` utility
+   across the codebase is permanently inactive and the site always
+   renders in its light theme, regardless of visitor OS/browser setting. */
+@custom-variant dark (&:is(.dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f4f5f7;
+  --foreground: #24272a;
+}
+
+/* Reserve the scrollbar's width on every page, even ones short enough not
+   to need it, so the centered nav/content don't shift horizontally when
+   navigating between a tall page and a short one. */
+html {
+  scrollbar-gutter: stable;
 }
 
 @theme inline {
@@ -10,13 +23,18 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Perfect Game brand palette */
+  --color-brand-navy: #003764;
+  --color-brand-blue: #005cb9;
+  --color-brand-red: #aa182c;
+  --color-brand-orange: #ec7700;
+  --color-brand-yellow: #ffd100;
+  --color-brand-teal: #004c45;
+  --color-brand-gray-900: #24272a;
+  --color-brand-gray-600: #76777a;
+  --color-brand-gray-400: #a7a8a9;
+  --color-brand-gray-200: #d0cfcd;
 }
 
 body {

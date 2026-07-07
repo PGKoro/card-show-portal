@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+
+import { Footer } from "@/components/Footer";
+import { NavBar } from "@/components/NavBar";
+
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Card Show Portal",
-  description: "Marketplace platform for sports card shows and dealers",
+  title: "Showfloor",
+  description: "Marketplace platform for card shows and dealers",
 };
 
 export default function RootLayout({
@@ -27,7 +31,11 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <NavBar />
+        {children}
+        <Footer />
+      </body>
     </html>
   );
 }
