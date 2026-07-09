@@ -24,6 +24,11 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("role", "admin")
+        # Superusers are created directly (create_admin / createsuperuser),
+        # never through the public signup flow, so they should never be
+        # routed into the vendor/customer /onboarding UI — which doesn't
+        # even offer an "admin" role choice.
+        extra_fields.setdefault("onboarding_completed", True)
 
         if extra_fields.get("is_staff") is not True:
             raise ValueError("Superuser must have is_staff=True")

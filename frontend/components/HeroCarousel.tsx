@@ -3,12 +3,12 @@
 import Image from "next/image";
 import { useEffect, useState, type ReactNode } from "react";
 
-import type { CardShow } from "@/lib/mockData";
+import type { ShowEvent } from "@/lib/events";
 
 const INTERVAL_MS = 5000;
 
 export type HeroSlide = {
-  show: CardShow;
+  show: ShowEvent;
   image: string;
 };
 

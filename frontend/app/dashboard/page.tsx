@@ -1,35 +1,23 @@
-import Link from "next/link";
+"use client";
 
-// Placeholder hub linking to each role's dashboard. Once auth state is
-// wired up, this should read the logged-in user's role (from
-// /api/v1/auth/user/) and redirect straight to the matching route below.
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
+import { useAuth } from "@/lib/AuthContext";
+import { dashboardPathForRole } from "@/lib/auth";
+
+// No role picker — DashboardLayout already guarantees a signed-in, fully
+// onboarded user by the time this renders, so just send them straight to
+// their own dashboard. Nobody gets to choose a different role's view.
 export default function DashboardPage() {
-  return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
-      <h1 className="text-2xl font-semibold">My Account</h1>
-      <p className="max-w-md text-gray-600 dark:text-gray-300">
-        Choose a role to preview its account.
-      </p>
-      <div className="flex gap-4">
-        <Link
-          href="/dashboard/vendor"
-          className="rounded-md border border-gray-300 px-5 py-2.5 font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-        >
-          Vendor
-        </Link>
-        <Link
-          href="/dashboard/customer"
-          className="rounded-md border border-gray-300 px-5 py-2.5 font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-        >
-          Customer
-        </Link>
-        <Link
-          href="/dashboard/admin"
-          className="rounded-md border border-gray-300 px-5 py-2.5 font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-        >
-          Admin
-        </Link>
-      </div>
-    </main>
-  );
+  const router = useRouter();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      router.replace(dashboardPathForRole(user.role));
+    }
+  }, [user, router]);
+
+  return null;
 }

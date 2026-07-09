@@ -67,17 +67,27 @@ choices.)*
 card-show-portal/
 ├── backend/                        # Django + DRF API
 │   ├── apps/
-│   │   ├── core/                   # health check, role-permission classes, example Celery task
-│   │   │   ├── permissions.py      #   HasRole / IsVendor / IsCustomer / IsAdminRole
+│   │   ├── core/                   # health check, role-permission classes, shared constants
+│   │   │   ├── constants.py        #   CATEGORY_CHOICES (shared vendor/listing category vocab)
+│   │   │   ├── permissions.py      #   HasRole / IsVendor / IsCustomer / IsAdminRole / IsApprovedVendor
 │   │   │   ├── tasks.py            #   example_task (placeholder Celery job)
 │   │   │   ├── urls.py             #   /api/v1/health/
 │   │   │   └── views.py            #   HealthCheckView (checks DB connectivity)
-│   │   └── users/                  # custom User model + auth wiring
-│   │       ├── models.py           #   User (email-based, role field)
-│   │       ├── managers.py         #   UserManager (email-based create_user/create_superuser)
-│   │       ├── serializers.py      #   RegisterSerializer, UserDetailsSerializer (adds `role`)
-│   │       ├── views.py            #   GoogleLoginView, MicrosoftLoginView (social login)
-│   │       └── admin.py            #   Django admin registration for User
+│   │   ├── users/                  # custom User model + auth/onboarding/vendor-approval
+│   │   │   ├── models.py           #   User (email-based, role, onboarding/vendor fields)
+│   │   │   ├── managers.py         #   UserManager (email-based create_user/create_superuser)
+│   │   │   ├── serializers.py      #   RegisterSerializer, OnboardingSerializer, UserDetailsSerializer
+│   │   │   ├── views.py            #   OnboardingView, vendor approval views, social login
+│   │   │   ├── management/commands/create_admin.py  # creates admin@showfloor.com
+│   │   │   └── admin.py            #   Django admin registration for User
+│   │   ├── listings/                # a vendor's own inventory items
+│   │   │   ├── models.py           #   Listing (title/category/price/condition/status)
+│   │   │   ├── serializers.py, views.py, urls.py  # GET/POST /api/v1/listings/
+│   │   │   └── admin.py
+│   │   └── events/                  # card shows/conventions — public browse, admin-only CRUD
+│   │       ├── models.py           #   Event (name/venue/city/dates/vendors M2M/estimates)
+│   │       ├── serializers.py, views.py, urls.py  # GET public, POST/PATCH admin-only
+│   │       └── migrations/0002_seed_events.py  # seeds the original 7 shows
 │   ├── config/                     # project-wide settings & wiring
 │   │   ├── settings/
 │   │   │   ├── base.py             #   shared settings (env-driven)
@@ -93,13 +103,33 @@ card-show-portal/
 │   ├── app/
 │   │   ├── page.tsx                #   landing page
 │   │   ├── login/page.tsx          #   login form
-│   │   ├── signup/page.tsx         #   signup form
+│   │   ├── signup/page.tsx         #   signup step 1 (email/password)
+│   │   ├── onboarding/
+│   │   │   ├── page.tsx            #   signup step 2 (name, role)
+│   │   │   ├── customer/page.tsx   #   signup step 3 for customers (interests, optional)
+│   │   │   └── vendor/page.tsx     #   signup step 3 for vendors (business details)
+│   │   ├── events/
+│   │   │   ├── page.tsx            #   public browse (upcoming/past), real API-backed
+│   │   │   └── [eventId]/page.tsx  #   public event detail (stats + vendors attending)
 │   │   └── dashboard/
-│   │       ├── page.tsx            #   role-picker hub (placeholder)
-│   │       ├── vendor/page.tsx     #   vendor dashboard (placeholder)
+│   │       ├── layout.tsx          #   auth guard + Log out button (bottom of every dashboard page)
+│   │       ├── page.tsx            #   auto-redirects to the signed-in user's own dashboard
+│   │       ├── vendor/page.tsx     #   vendor dashboard (pending banner / add-item form)
 │   │       ├── customer/page.tsx   #   customer dashboard (placeholder)
-│   │       └── admin/page.tsx      #   admin dashboard (placeholder)
-│   ├── lib/api.ts                  # fetch wrapper for the Django API (reads NEXT_PUBLIC_API_BASE_URL)
+│   │       └── admin/
+│   │           ├── page.tsx                  #   admin tools hub (links to the three below)
+│   │           ├── vendor-approvals/page.tsx  #   review/approve/reject pending vendors
+│   │           ├── manage-roles/page.tsx      #   search a user, flip customer/vendor/admin
+│   │           └── events/                    #   create/edit events (EventForm.tsx is shared)
+│   │               ├── page.tsx, EventForm.tsx
+│   │               ├── new/page.tsx
+│   │               └── [eventId]/page.tsx
+│   ├── lib/
+│   │   ├── api.ts                  #   fetch wrapper for the Django API
+│   │   ├── events.ts               #   ShowEvent type + date/image formatting helpers
+│   │   ├── auth.ts                 #   token storage (localStorage) + dashboard routing helper
+│   │   └── AuthContext.tsx         #   global signed-in state (NavBar, dashboard guard read this)
+│   ├── components/NavBar.tsx       #   auth-aware header (profile chip vs Log in/Sign up)
 │   ├── package.json
 │   ├── .env.example
 │   └── Dockerfile
@@ -145,11 +175,22 @@ this terminal running; open a new terminal tab for the commands below.
 docker compose exec backend python manage.py migrate
 ```
 
-### Create a superuser (admin login)
+### Create the admin account
+```bash
+docker compose exec backend python manage.py create_admin
+```
+Creates a superuser with email `admin@showfloor.com` and `role="admin"`, prompting for a
+password interactively (never hardcoded or committed anywhere). Re-running it once the account
+already exists fails cleanly with an error instead of creating a duplicate. Log in with this
+account through the frontend at `/login` — it redirects to `/dashboard/admin`.
+
+For any other admin account (a different email), use Django's built-in command instead:
 ```bash
 docker compose exec backend python manage.py createsuperuser
 ```
 Follow the prompts (email + password — there's no username field on this project's User model).
+The custom user manager (`backend/apps/users/managers.py`) already defaults superusers to
+`role="admin"`, so this also gets role-based routing for free.
 
 ### URLs once running
 | What | URL |
@@ -184,10 +225,37 @@ Auth is JWT-based, issued through **dj-rest-auth** on top of **django-allauth** 
 `Authorization: Bearer <access token>` header.
 
 Key endpoints (`backend/config/urls.py`):
-- `POST /api/v1/auth/registration/` — email/password signup, returns `access`/`refresh` JWTs
+- `POST /api/v1/auth/registration/` — email/password signup only, returns `access`/`refresh`
+  JWTs. Name and role are *not* collected here — see onboarding below.
 - `POST /api/v1/auth/login/` — email/password login, returns `access`/`refresh` JWTs
 - `POST /api/v1/auth/logout/`
-- `GET /api/v1/auth/user/` — current user's details, including `role`
+- `GET /api/v1/auth/user/` — current user's details, including `role`, `onboarding_completed`,
+  and (for vendors) `vendor_status`
+- `PATCH /api/v1/auth/onboarding/` — signup step 2 (authenticated). Collects name and role
+  (`vendor` or `customer`). Doesn't mark `onboarding_completed` yet — that happens in step 3.
+- `PATCH /api/v1/auth/onboarding/details/` — signup step 3 (authenticated), role-specific
+  fields: `business_name` / `business_description` / `location` / `category_tags` for vendors,
+  just `category_tags` for customers. Reads `role` off the user (already set in step 2), not
+  the request. Finalizes `onboarding_completed=True`; choosing `vendor` in step 2 means this
+  also sets `vendor_status="pending_review"`.
+- `GET`/`POST /api/v1/listings/` — a vendor's own listings. `GET` works for any vendor
+  (including pending ones); `POST` (create) requires `vendor_status="approved"`
+  (`apps.core.permissions.IsApprovedVendor`) — see the vendor approval flow below.
+- `GET /api/v1/admin/vendors/pending/`, `POST /api/v1/admin/vendors/<id>/approve/` /
+  `/reject/` — admin-only, review vendor signups.
+- `GET /api/v1/admin/users/?search=<email>&role=<vendor|customer|admin>` — admin-only, finds a
+  user by email, optionally filtered by role (the `role` filter is what the event vendor-picker
+  uses to find vendors). `POST /api/v1/admin/users/<id>/set-role/` with
+  `{"role": "customer"|"vendor"|"admin"}` — admin-only, flips a user's role. Setting `admin`
+  force-sets `onboarding_completed=True` (see below); setting `vendor` starts
+  `vendor_status="pending_review"` unless one was already set; setting `customer` clears
+  `vendor_status`. Both back the "Manage Roles" admin tool.
+- `GET`/`POST /api/v1/events/`, `GET`/`PATCH /api/v1/events/<id>/` — card shows/conventions.
+  `GET` is public (no auth) — this is what `/events` and the homepage browse. `POST`/`PATCH`
+  are admin-only, via the "Manage Events" tool: title, venue, city, description, start/end
+  date, `estimated_cards`/`estimated_attendees` (manual admin estimates, not derived from
+  anything), and `vendors` (a real M2M to vendor-role User accounts — `vendor_count` and
+  `vendors_detail` on the response are derived from that list, not separately stored).
 - `POST /api/v1/auth/google/`, `POST /api/v1/auth/microsoft/` — social login. The frontend
   exchanges an OAuth `code` from Google/Microsoft's consent screen for our own JWT pair
   (`backend/apps/users/views.py::GoogleLoginView` / `MicrosoftLoginView`).
@@ -196,26 +264,42 @@ Key endpoints (`backend/config/urls.py`):
 `USERNAME_FIELD` (no username) and has a `role` field with three choices — `vendor`,
 `customer`, `admin` — defaulting to `customer`. `backend/apps/core/permissions.py` defines a
 `HasRole` base permission plus concrete `IsVendor` / `IsCustomer` / `IsAdminRole` classes for
-gating DRF views by role. As the code comments note, these are meant to be combined with
-Django's built-in Groups/Permissions for finer-grained access later (e.g. `IsVendor` gates "this
-is a vendor endpoint" while a model permission gates "this vendor can create booths") — none of
-that finer-grained layer exists yet.
+gating DRF views by role, and `IsApprovedVendor` (subclasses `IsVendor`) which additionally
+requires `vendor_status="approved"` — this is what gates listing creation.
+
+**Vendor approval flow:** choosing "vendor" during onboarding (or being flipped to vendor via
+"Manage Roles") sets `vendor_status` to `pending_review`. A vendor in that state can log in and
+see their own (empty) listings page, but `POST /api/v1/listings/` returns 403 until an admin
+approves them via the "Vendor Approvals" tool. Superusers (`create_admin`/`createsuperuser`)
+and users promoted to admin via "Manage Roles" always get `onboarding_completed=True`
+automatically, since neither is meant to go through the vendor/customer onboarding UI (which
+has no "admin" choice).
+
+**Admin dashboard:** `/dashboard/admin` is a hub linking to one page per tool — "Vendor
+Approvals" (`/dashboard/admin/vendor-approvals`), "Manage Roles"
+(`/dashboard/admin/manage-roles`), and "Manage Events" (`/dashboard/admin/events`) today. Adding
+a new admin capability means adding a new page here and a tile on the hub, not growing a single
+monolithic dashboard.
 
 ## 6. Current Limitations / Not Yet Built
 
-- **No data model for shows, booths, or inventory.** The only Django apps that exist are
-  `users` (auth) and `core` (health check, permissions, one placeholder Celery task). There is
-  no `shows`, `listings`, `bookings`, or similar app yet — this is the next major piece of work.
-- **New signups always default to `role="customer"`.** There's no flow yet for a user to
-  register as a vendor, or for an admin to change someone's role after the fact (only possible
+- **No data model for bookings yet.** `apps.listings` (a vendor's own inventory items) and
+  `apps.events` (card shows/conventions — publicly browsable, admin-managed) both exist now,
+  but there's still no way for a vendor to book a booth at a specific event — the two aren't
+  connected to each other yet.
+- **Role is chosen once, at onboarding, with no way to change it afterwards.** A user picks
+  vendor or customer on `/onboarding` right after registering; there's no flow for a customer to
+  become a vendor later, or for an admin to change someone's role after the fact (only possible
   today via the Django admin).
-- **The role permission classes aren't wired to any real endpoint.** `IsVendor` / `IsCustomer` /
-  `IsAdminRole` exist in `apps/core/permissions.py` but nothing uses them yet, since there are no
-  vendor/customer resource endpoints to protect.
-- **Frontend auth isn't wired end-to-end.** The login and signup forms
-  (`frontend/app/login/page.tsx`, `frontend/app/signup/page.tsx`) call the API but don't yet
-  store the returned tokens or redirect based on role — both have explicit `// TODO` comments
-  marking this. The `/dashboard` pages are static placeholders with no real auth guard.
+- **Vendor `category_tags`/`business_name` etc. aren't editable after onboarding.** There's no
+  "edit profile" page yet — those fields are set once by `OnboardingSerializer` and then only
+  changeable via the Django admin.
+- **JWTs are stored in `localStorage`, not httpOnly cookies.** `frontend/lib/auth.ts` has a
+  `// TODO` explaining the upgrade path — httpOnly cookies would need a Next.js API
+  route/server action to proxy the Django calls, which was judged a bigger lift than this pass
+  warranted. `/dashboard/*` pages have a guard (`frontend/app/dashboard/layout.tsx`) that
+  redirects to `/login` if there's no session on load — it's intentionally simple, not
+  bulletproof (e.g. it doesn't re-check on token expiry mid-session).
 - **No frontend test framework.** CI only runs `npm run lint` and `npm run build` for the
   frontend; there's no Jest/Vitest/Playwright setup.
 - **No API documentation generator.** No drf-spectacular, Swagger, or similar — endpoints are

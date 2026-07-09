@@ -1,25 +1,40 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 import { CardCarousel } from "@/components/CardCarousel";
 import { HeroCarousel, type HeroSlide } from "@/components/HeroCarousel";
 import { InventoryCard } from "@/components/InventoryCard";
 import { ShowCard } from "@/components/ShowCard";
 import { VendorCard } from "@/components/VendorCard";
-import {
-  CARD_SHOWS,
-  VENDORS,
-  getExampleCardImage,
-  getRecentListings,
-  getVendorById,
-} from "@/lib/mockData";
+import { apiFetch } from "@/lib/api";
+import type { ShowEvent } from "@/lib/events";
+import { VENDORS, getExampleCardImage, getRecentListings, getVendorById } from "@/lib/mockData";
 
 const HERO_IMAGES = ["/cardshow1.webp", "/cardshow2.avif", "/cardshow3.jpeg"];
 
 export default function HomePage() {
   const featuredVendors = VENDORS;
   const recentListings = getRecentListings(10);
-  const upcomingShows = CARD_SHOWS.filter((show) => show.status === "upcoming");
-  const pastShows = CARD_SHOWS.filter((show) => show.status === "past");
+  const [events, setEvents] = useState<ShowEvent[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<{ results: ShowEvent[] }>("/events/").then((data) => {
+      if (!cancelled) setEvents(data.results);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const upcomingShows = [...events]
+    .filter((event) => event.status === "upcoming")
+    .sort((a, b) => a.start_date.localeCompare(b.start_date));
+  const pastShows = [...events]
+    .filter((event) => event.status === "past")
+    .sort((a, b) => b.start_date.localeCompare(a.start_date));
 
   const heroSlides: HeroSlide[] = pastShows.map((show, i) => ({
     show,
@@ -96,27 +111,41 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="bg-white py-16">
-        <div className="mx-auto max-w-6xl px-6">
-          <h2 className="mb-6 text-2xl font-semibold">Upcoming shows</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {upcomingShows.map((show) => (
-              <ShowCard key={show.id} show={show} />
-            ))}
+      {upcomingShows.length > 0 && (
+        <section className="bg-white py-16">
+          <div className="mx-auto max-w-6xl px-6">
+            <div className="mb-6 flex items-end justify-between">
+              <h2 className="text-2xl font-semibold">Upcoming shows</h2>
+              <Link href="/events" className="text-sm font-medium text-brand-blue hover:underline">
+                View all events
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {upcomingShows.map((show) => (
+                <ShowCard key={show.id} show={show} />
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      <section className="py-16">
-        <div className="mx-auto max-w-6xl px-6">
-          <h2 className="mb-6 text-2xl font-semibold">Past events</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {pastShows.map((show) => (
-              <ShowCard key={show.id} show={show} />
-            ))}
+      {pastShows.length > 0 && (
+        <section className="py-16">
+          <div className="mx-auto max-w-6xl px-6">
+            <div className="mb-6 flex items-end justify-between">
+              <h2 className="text-2xl font-semibold">Past events</h2>
+              <Link href="/events" className="text-sm font-medium text-brand-blue hover:underline">
+                View all events
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {pastShows.map((show) => (
+                <ShowCard key={show.id} show={show} />
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
     </main>
   );
 }

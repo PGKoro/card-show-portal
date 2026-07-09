@@ -29,6 +29,11 @@ export function Footer() {
                 </Link>
               </li>
               <li>
+                <Link href="/events" className="hover:text-white">
+                  Browse Events
+                </Link>
+              </li>
+              <li>
                 <Link href="/dashboard" className="hover:text-white">
                   My Account
                 </Link>
