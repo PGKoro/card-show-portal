@@ -1,12 +1,15 @@
-import type { CardShow } from "@/lib/mockData";
+import Link from "next/link";
 
-// Informational only — there's no show detail page yet, so these aren't
-// links, unlike vendor/inventory cards.
-export function ShowCard({ show }: { show: CardShow }) {
+import { formatEventDateRange, type ShowEvent } from "@/lib/events";
+
+export function ShowCard({ show }: { show: ShowEvent }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800">
+    <Link
+      href={`/events/${show.id}`}
+      className="group flex flex-col gap-1.5 rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-gray-800"
+    >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="font-semibold">{show.name}</h3>
+        <h3 className="font-semibold group-hover:underline">{show.name}</h3>
         <span
           className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${
             show.status === "upcoming"
@@ -17,15 +20,15 @@ export function ShowCard({ show }: { show: CardShow }) {
           {show.status === "upcoming" ? "Upcoming" : "Completed"}
         </span>
       </div>
-      <p className="text-sm text-gray-500 dark:text-gray-400">{show.dateLabel}</p>
+      <p className="text-sm text-gray-500 dark:text-gray-400">{formatEventDateRange(show)}</p>
       <p className="text-sm text-gray-600 dark:text-gray-300">
         {show.venue}, {show.city}
       </p>
       <p className="mt-1 text-xs text-gray-400">
         {show.status === "upcoming"
-          ? `${show.vendorCount} vendors booked`
-          : `${show.vendorCount} vendors · ~${show.attendeeEstimate?.toLocaleString()} attendees`}
+          ? `${show.vendor_count} vendors booked`
+          : `${show.vendor_count} vendors · ~${show.estimated_attendees.toLocaleString()} attendees`}
       </p>
-    </div>
+    </Link>
   );
 }

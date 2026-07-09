@@ -36,3 +36,22 @@ class IsCustomer(HasRole):
 
 class IsAdminRole(HasRole):
     required_role = User.Role.ADMIN
+
+
+class IsApprovedVendor(IsVendor):
+    """
+    Gates actions a vendor can only do once an admin has approved their
+    account — e.g. creating a listing. `IsVendor` alone would let a
+    still-pending vendor through.
+    """
+
+    message = "Your vendor account is still pending admin approval."
+
+    def has_permission(self, request, view):
+        return bool(
+            super().has_permission(request, view)
+            and (
+                request.user.is_superuser
+                or request.user.vendor_status == User.VendorStatus.APPROVED
+            )
+        )

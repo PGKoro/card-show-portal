@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "django.contrib.sites",
     # Third-party
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "allauth",
     "allauth.account",
@@ -43,6 +44,8 @@ INSTALLED_APPS = [
     # Local
     "apps.users",
     "apps.core",
+    "apps.listings",
+    "apps.events",
 ]
 
 MIDDLEWARE = [
@@ -168,7 +171,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
 }
 
@@ -187,6 +190,7 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 
 # OAuth callback URLs the frontend exposes to complete the social login

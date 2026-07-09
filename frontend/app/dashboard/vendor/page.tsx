@@ -1,59 +1,99 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import { InventoryCard } from "@/components/InventoryCard";
+import { getApiErrorMessage, apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
+import { getAccessToken } from "@/lib/auth";
 import {
   CATEGORY_LABELS,
   CONDITION_LABELS,
-  getItemById,
-  getItemsByVendor,
-  getVendorById,
   type InventoryCondition,
   type InventoryItem,
   type VendorCategory,
 } from "@/lib/mockData";
 
-// Demo persona: pretend the logged-in vendor is Diamond Dynasty Cards.
-const MY_VENDOR_ID = "diamond-dynasty";
 const CATEGORIES = Object.keys(CATEGORY_LABELS) as VendorCategory[];
 const CONDITIONS = Object.keys(CONDITION_LABELS) as InventoryCondition[];
 
+type Listing = {
+  id: number;
+  title: string;
+  description: string;
+  category: VendorCategory;
+  price: string;
+  condition: InventoryCondition;
+  status: InventoryItem["status"];
+  created_at: string;
+};
+
+function toInventoryItem(listing: Listing): InventoryItem {
+  return {
+    id: String(listing.id),
+    vendorId: "",
+    category: listing.category,
+    title: listing.title,
+    price: Number(listing.price),
+    condition: listing.condition,
+    status: listing.status,
+    description: listing.description,
+  };
+}
+
 export default function VendorDashboardPage() {
-  const vendor = getVendorById(MY_VENDOR_ID);
-  const [items, setItems] = useState<InventoryItem[]>(getItemsByVendor(MY_VENDOR_ID));
+  const { user } = useAuth();
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [loadingListings, setLoadingListings] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [justAdded, setJustAdded] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<VendorCategory>("modern");
   const [price, setPrice] = useState("");
   const [condition, setCondition] = useState<InventoryCondition>("near-mint");
   const [description, setDescription] = useState("");
-  const nextItemId = useRef(0);
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
+  const isApproved = user?.vendor_status === "approved";
 
-    const newItem: InventoryItem = {
-      id: `my-item-${nextItemId.current++}`,
-      vendorId: MY_VENDOR_ID,
-      category,
-      title: title || "Untitled item",
-      price: Number(price) || 0,
-      condition,
-      status: "available",
-      description: description || "No description provided.",
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<{ results: Listing[] }>("/listings/", { accessToken: getAccessToken() ?? undefined })
+      .then((data) => {
+        if (!cancelled) setListings(data.results);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingListings(false);
+      });
+    return () => {
+      cancelled = true;
     };
+  }, []);
 
-    // In-memory only — this list resets on page refresh, nothing is saved
-    // to a real database.
-    setItems((current) => [newItem, ...current]);
-    setJustAdded(newItem.title);
-    setFormOpen(false);
-    setTitle("");
-    setPrice("");
-    setDescription("");
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const created = await apiFetch<Listing>("/listings/", {
+        method: "POST",
+        accessToken: getAccessToken() ?? undefined,
+        body: { title, category, price: price || "0", condition, description },
+      });
+      setListings((current) => [created, ...current]);
+      setJustAdded(created.title);
+      setFormOpen(false);
+      setTitle("");
+      setPrice("");
+      setDescription("");
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Could not add item. Please try again."));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -63,27 +103,43 @@ export default function VendorDashboardPage() {
           <div>
             <h1 className="text-2xl font-semibold">My Inventory</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Viewing as {vendor?.businessName ?? "your shop"} (demo persona)
+              {user?.business_name || "Your shop"}
             </p>
           </div>
-          <button
-            onClick={() => {
-              setFormOpen((v) => !v);
-              setJustAdded(null);
-            }}
-            className="rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy"
-          >
-            {formOpen ? "Close" : "Add Item"}
-          </button>
+          {isApproved && (
+            <button
+              onClick={() => {
+                setFormOpen((v) => !v);
+                setJustAdded(null);
+              }}
+              className="rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy"
+            >
+              {formOpen ? "Close" : "Add Item"}
+            </button>
+          )}
         </div>
 
-        {justAdded && (
-          <div className="mb-6 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
-            &ldquo;{justAdded}&rdquo; added to your inventory (demo only — not saved to a real database).
+        {user?.vendor_status === "pending_review" && (
+          <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+            Your vendor account is pending admin approval. You&apos;ll be able to add listings
+            once it&apos;s approved — check back soon.
           </div>
         )}
 
-        {formOpen && (
+        {user?.vendor_status === "rejected" && (
+          <div className="mb-6 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            Your vendor application wasn&apos;t approved, so you can&apos;t add listings. Contact
+            us if you think this is a mistake.
+          </div>
+        )}
+
+        {justAdded && (
+          <div className="mb-6 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+            &ldquo;{justAdded}&rdquo; added to your inventory.
+          </div>
+        )}
+
+        {formOpen && isApproved && (
           <form
             onSubmit={handleSubmit}
             className="mb-8 grid grid-cols-1 gap-4 rounded-lg border border-gray-200 bg-white p-5 shadow-sm sm:grid-cols-2 dark:border-gray-800"
@@ -94,6 +150,7 @@ export default function VendorDashboardPage() {
               </label>
               <input
                 id="title"
+                required
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. 2024 Bowman Chrome Rookie Auto"
@@ -145,6 +202,8 @@ export default function VendorDashboardPage() {
                 id="price"
                 type="number"
                 min="0"
+                step="0.01"
+                required
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
                 className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
@@ -164,26 +223,31 @@ export default function VendorDashboardPage() {
               />
             </div>
 
+            {error && <p className="text-sm text-red-600 sm:col-span-2">{error}</p>}
+
             <div className="sm:col-span-2">
               <button
                 type="submit"
-                className="rounded-md bg-brand-blue px-5 py-2.5 font-medium text-white hover:bg-brand-navy"
+                disabled={submitting}
+                className="rounded-md bg-brand-blue px-5 py-2.5 font-medium text-white hover:bg-brand-navy disabled:opacity-50"
               >
-                Save Item
+                {submitting ? "Saving…" : "Save Item"}
               </button>
             </div>
           </form>
         )}
 
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          {items.map((item) => (
-            <InventoryCard
-              key={item.id}
-              item={item}
-              href={getItemById(item.id) ? `/vendors/${MY_VENDOR_ID}/items/${item.id}` : undefined}
-            />
-          ))}
-        </div>
+        {!loadingListings && listings.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
+            No items yet.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {listings.map((listing) => (
+              <InventoryCard key={listing.id} item={toInventoryItem(listing)} />
+            ))}
+          </div>
+        )}
       </div>
     </main>
   );
