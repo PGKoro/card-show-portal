@@ -141,3 +141,55 @@ class OnboardingDetailsSerializer(serializers.ModelSerializer):
         instance.onboarding_completed = True
         instance.save()
         return instance
+
+
+class ProfileSerializer(serializers.ModelSerializer):
+    """
+    PATCH /api/v1/auth/profile/ — "Profile Settings": lets an
+    already-onboarded user edit their own name and role-specific details
+    afterwards. Deliberately never touches role/vendor_status/
+    onboarding_completed — role changes stay admin-only (see
+    apps.users.views.SetUserRoleView), so a user can't use this to grant
+    themselves vendor/admin access.
+    """
+
+    category_tags = serializers.ListField(
+        child=serializers.ChoiceField(choices=CATEGORY_VALUES),
+        required=False,
+    )
+
+    class Meta:
+        model = User
+        fields = (
+            "first_name",
+            "last_name",
+            "business_name",
+            "business_description",
+            "location",
+            "category_tags",
+        )
+        extra_kwargs = {
+            "last_name": {"required": False, "allow_blank": True},
+            "business_name": {"required": False, "allow_blank": True},
+            "business_description": {"required": False, "allow_blank": True},
+            "location": {"required": False, "allow_blank": True},
+        }
+
+    def validate(self, attrs):
+        if (
+            self.instance.role == User.Role.VENDOR
+            and "business_name" in attrs
+            and not attrs["business_name"]
+        ):
+            raise serializers.ValidationError({"business_name": "Business name can't be blank."})
+        return attrs
+
+    def update(self, instance, validated_data):
+        # Vendor-only fields shouldn't apply to non-vendors even if somehow
+        # included in the request — defense in depth, since the frontend
+        # settings form never shows these fields to a customer.
+        if instance.role != User.Role.VENDOR:
+            validated_data.pop("business_name", None)
+            validated_data.pop("business_description", None)
+            validated_data.pop("location", None)
+        return super().update(instance, validated_data)

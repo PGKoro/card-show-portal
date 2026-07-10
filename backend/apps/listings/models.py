@@ -18,6 +18,14 @@ class Listing(models.Model):
         GOOD = "good", "Good"
         FAIR = "fair", "Fair"
 
+    class Grading(models.TextChoices):
+        UNGRADED = "ungraded", "Ungraded"
+        PSA = "psa", "PSA"
+        BGS = "bgs", "BGS"
+        SGC = "sgc", "SGC"
+        CGC = "cgc", "CGC"
+        OTHER = "other", "Other"
+
     class Status(models.TextChoices):
         AVAILABLE = "available", "Available"
         RESERVED = "reserved", "Reserved"
@@ -31,6 +39,7 @@ class Listing(models.Model):
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     condition = models.CharField(max_length=20, choices=Condition.choices)
+    grading = models.CharField(max_length=20, choices=Grading.choices, default=Grading.UNGRADED)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
     created_at = models.DateTimeField(auto_now_add=True)
 

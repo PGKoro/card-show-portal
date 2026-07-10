@@ -230,6 +230,107 @@ class OnboardingEndpointTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class ProfileEndpointTests(APITestCase):
+    """Covers the "Profile Settings" self-service edit endpoint."""
+
+    url = "/api/v1/auth/profile/"
+
+    def setUp(self):
+        self.customer = User.objects.create_user(
+            email="settings-customer@example.com",
+            password="s3cret!23",
+            first_name="Cara",
+            role=User.Role.CUSTOMER,
+            onboarding_completed=True,
+        )
+        self.vendor = User.objects.create_user(
+            email="settings-vendor@example.com",
+            password="s3cret!23",
+            first_name="Val",
+            role=User.Role.VENDOR,
+            business_name="Val's Cards",
+            vendor_status=User.VendorStatus.APPROVED,
+            onboarding_completed=True,
+        )
+
+    def access_for(self, email, password="s3cret!23"):
+        login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
+        return login.data["access"]
+
+    def test_requires_auth(self):
+        response = self.client.patch(self.url, {"first_name": "No"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_customer_can_update_name_and_interests(self):
+        access = self.access_for("settings-customer@example.com")
+        response = self.client.patch(
+            self.url,
+            {"first_name": "Caroline", "last_name": "Customer", "category_tags": ["vintage"]},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["first_name"], "Caroline")
+        self.assertEqual(response.data["category_tags"], ["vintage"])
+        # Role, approval state, and onboarding status must never move here.
+        self.assertEqual(response.data["role"], User.Role.CUSTOMER)
+
+    def test_customer_cannot_set_vendor_fields(self):
+        access = self.access_for("settings-customer@example.com")
+        response = self.client.patch(
+            self.url,
+            {"first_name": "Cara", "business_name": "Sneaky Shop"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.business_name, "")
+
+    def test_vendor_can_update_business_info(self):
+        access = self.access_for("settings-vendor@example.com")
+        response = self.client.patch(
+            self.url,
+            {
+                "first_name": "Val",
+                "business_name": "Val's Vintage Cards",
+                "business_description": "Now with more Pokémon.",
+                "location": "Denver, CO",
+                "category_tags": ["vintage", "pokemon"],
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["business_name"], "Val's Vintage Cards")
+        self.assertEqual(response.data["location"], "Denver, CO")
+        # Editing profile info must not reset an already-approved vendor
+        # back to pending review.
+        self.assertEqual(response.data["vendor_status"], User.VendorStatus.APPROVED)
+
+    def test_vendor_cannot_blank_out_business_name(self):
+        access = self.access_for("settings-vendor@example.com")
+        response = self.client.patch(
+            self.url,
+            {"business_name": ""},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_change_own_role(self):
+        access = self.access_for("settings-customer@example.com")
+        response = self.client.patch(
+            self.url,
+            {"first_name": "Cara", "role": "admin"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.role, User.Role.CUSTOMER)
+
+
 class VendorApprovalFlowTests(APITestCase):
     """Covers the full "vendor can't post until approved" requirement."""
 
@@ -460,3 +561,57 @@ class AdminUserManagementTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
         self.assertEqual(promote.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class AdminUserDetailTests(APITestCase):
+    """Covers the "view full submitted details" link on a vendor approval."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(email="admin4@example.com", password="s3cret!23")
+        self.vendor = User.objects.create_user(
+            email="detail-vendor@example.com",
+            password="s3cret!23",
+            first_name="Dana",
+            last_name="Dealer",
+            role=User.Role.VENDOR,
+            business_name="Dana's Cards",
+            business_description="Vintage and modern singles.",
+            location="Reno, NV",
+            category_tags=["vintage"],
+            vendor_status=User.VendorStatus.PENDING_REVIEW,
+        )
+        login = self.client.post(
+            "/api/v1/auth/login/", {"email": "admin4@example.com", "password": "s3cret!23"}
+        )
+        self.admin_access = login.data["access"]
+
+    def test_admin_can_view_full_submitted_details(self):
+        response = self.client.get(
+            f"/api/v1/admin/users/{self.vendor.pk}/",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["email"], "detail-vendor@example.com")
+        self.assertEqual(response.data["first_name"], "Dana")
+        self.assertEqual(response.data["business_name"], "Dana's Cards")
+        self.assertEqual(response.data["business_description"], "Vintage and modern singles.")
+        self.assertEqual(response.data["location"], "Reno, NV")
+        self.assertEqual(response.data["category_tags"], ["vintage"])
+        self.assertNotIn("password", response.data)
+
+    def test_non_admin_cannot_view_user_details(self):
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "detail-vendor@example.com", "password": "s3cret!23"},
+        )
+        access = login.data["access"]
+        response = self.client.get(
+            f"/api/v1/admin/users/{self.admin.pk}/", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unknown_pk_returns_404(self):
+        response = self.client.get(
+            "/api/v1/admin/users/999999/", HTTP_AUTHORIZATION=f"Bearer {self.admin_access}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

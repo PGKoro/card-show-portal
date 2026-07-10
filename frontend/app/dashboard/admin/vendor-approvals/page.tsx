@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { Pagination } from "@/components/Pagination";
 import { ApiError, getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
@@ -21,6 +22,7 @@ type PendingVendor = {
 type Feedback = { id: number; text: string };
 
 export default function VendorApprovalsPage() {
+  const confirm = useConfirm();
   const [pending, setPending] = useState<PendingVendor[]>([]);
   const [page, setPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
@@ -78,6 +80,17 @@ export default function VendorApprovalsPage() {
   }
 
   async function handleDecision(vendor: PendingVendor, decision: "approve" | "reject") {
+    const ok = await confirm({
+      title: decision === "approve" ? "Approve this vendor?" : "Reject this vendor?",
+      message:
+        decision === "approve"
+          ? `${vendor.business_name} will be able to list inventory immediately.`
+          : `${vendor.business_name} will not be able to list inventory.`,
+      confirmLabel: decision === "approve" ? "Approve" : "Reject",
+      tone: decision === "approve" ? "default" : "danger",
+    });
+    if (!ok) return;
+
     try {
       await apiFetch(`/admin/vendors/${vendor.pk}/${decision}/`, {
         method: "POST",
@@ -126,7 +139,12 @@ export default function VendorApprovalsPage() {
             {pending.map((vendor) => (
               <div key={vendor.pk} className="flex flex-wrap items-center justify-between gap-4 p-4">
                 <div>
-                  <p className="font-medium">{vendor.business_name}</p>
+                  <Link
+                    href={`/dashboard/admin/vendor-approvals/${vendor.pk}`}
+                    className="font-medium text-brand-blue hover:underline"
+                  >
+                    {vendor.business_name}
+                  </Link>
                   <p className="text-sm text-gray-500 dark:text-gray-400">{vendor.email}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     {vendor.category_tags.map((tag) => (

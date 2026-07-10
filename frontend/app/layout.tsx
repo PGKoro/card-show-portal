@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { ConfirmDialogProvider } from "@/components/ConfirmDialogProvider";
 import { Footer } from "@/components/Footer";
 import { NavBar } from "@/components/NavBar";
 import { AuthProvider } from "@/lib/AuthContext";
@@ -34,9 +35,11 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <AuthProvider>
-          <NavBar />
-          {children}
-          <Footer />
+          <ConfirmDialogProvider>
+            <NavBar />
+            {children}
+            <Footer />
+          </ConfirmDialogProvider>
         </AuthProvider>
       </body>
     </html>
