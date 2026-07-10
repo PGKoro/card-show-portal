@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { getApiErrorMessage, apiFetch } from "@/lib/api";
 import { useAuth, type CurrentUser } from "@/lib/AuthContext";
 import { dashboardPathForRole, getAccessToken } from "@/lib/auth";
@@ -24,6 +25,10 @@ export default function VendorOnboardingPage() {
   const [categoryTags, setCategoryTags] = useState<VendorCategory[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // See the matching comment in app/onboarding/page.tsx — setUser(updated)
+  // below would otherwise make this page's own guard swap it to a tiny
+  // spinner while router.push's navigation is still in flight.
+  const [navigatingAway, setNavigatingAway] = useState(false);
 
   useEffect(() => {
     if (isLoading || checkedRef.current) return;
@@ -64,6 +69,7 @@ export default function VendorOnboardingPage() {
         },
       });
       setUser(updated);
+      setNavigatingAway(true);
       router.push(dashboardPathForRole(updated.role));
     } catch (err) {
       setError(getApiErrorMessage(err, "Something went wrong. Please try again."));
@@ -71,8 +77,14 @@ export default function VendorOnboardingPage() {
     }
   }
 
-  if (isLoading || !user || user.onboarding_completed || !user.first_name || user.role !== "vendor") {
-    return null;
+  if (isLoading || !user) {
+    return <AuthPageSpinner />;
+  }
+  if (
+    !navigatingAway &&
+    (user.onboarding_completed || !user.first_name || user.role !== "vendor")
+  ) {
+    return <AuthPageSpinner />;
   }
 
   return (

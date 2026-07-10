@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { InventoryCard } from "@/components/InventoryCard";
@@ -9,6 +10,8 @@ import { getAccessToken } from "@/lib/auth";
 import {
   CATEGORY_LABELS,
   CONDITION_LABELS,
+  GRADING_LABELS,
+  type GradingCompany,
   type InventoryCondition,
   type InventoryItem,
   type VendorCategory,
@@ -16,6 +19,7 @@ import {
 
 const CATEGORIES = Object.keys(CATEGORY_LABELS) as VendorCategory[];
 const CONDITIONS = Object.keys(CONDITION_LABELS) as InventoryCondition[];
+const GRADINGS = Object.keys(GRADING_LABELS) as GradingCompany[];
 
 type Listing = {
   id: number;
@@ -24,6 +28,7 @@ type Listing = {
   category: VendorCategory;
   price: string;
   condition: InventoryCondition;
+  grading: GradingCompany;
   status: InventoryItem["status"];
   created_at: string;
 };
@@ -36,6 +41,7 @@ function toInventoryItem(listing: Listing): InventoryItem {
     title: listing.title,
     price: Number(listing.price),
     condition: listing.condition,
+    grading: listing.grading,
     status: listing.status,
     description: listing.description,
   };
@@ -53,6 +59,7 @@ export default function VendorDashboardPage() {
   const [category, setCategory] = useState<VendorCategory>("modern");
   const [price, setPrice] = useState("");
   const [condition, setCondition] = useState<InventoryCondition>("near-mint");
+  const [grading, setGrading] = useState<GradingCompany>("ungraded");
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -81,13 +88,14 @@ export default function VendorDashboardPage() {
       const created = await apiFetch<Listing>("/listings/", {
         method: "POST",
         accessToken: getAccessToken() ?? undefined,
-        body: { title, category, price: price || "0", condition, description },
+        body: { title, category, price: price || "0", condition, grading, description },
       });
       setListings((current) => [created, ...current]);
       setJustAdded(created.title);
       setFormOpen(false);
       setTitle("");
       setPrice("");
+      setGrading("ungraded");
       setDescription("");
     } catch (err) {
       setError(getApiErrorMessage(err, "Could not add item. Please try again."));
@@ -106,17 +114,25 @@ export default function VendorDashboardPage() {
               {user?.business_name || "Your shop"}
             </p>
           </div>
-          {isApproved && (
-            <button
-              onClick={() => {
-                setFormOpen((v) => !v);
-                setJustAdded(null);
-              }}
-              className="rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy"
+          <div className="flex gap-2">
+            <Link
+              href="/dashboard/settings"
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
             >
-              {formOpen ? "Close" : "Add Item"}
-            </button>
-          )}
+              Profile Settings
+            </Link>
+            {isApproved && (
+              <button
+                onClick={() => {
+                  setFormOpen((v) => !v);
+                  setJustAdded(null);
+                }}
+                className="rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy"
+              >
+                {formOpen ? "Close" : "Add Item"}
+              </button>
+            )}
+          </div>
         </div>
 
         {user?.vendor_status === "pending_review" && (
@@ -189,6 +205,24 @@ export default function VendorDashboardPage() {
                 {CONDITIONS.map((c) => (
                   <option key={c} value={c}>
                     {CONDITION_LABELS[c]}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="grading" className="block text-sm font-medium">
+                Grading
+              </label>
+              <select
+                id="grading"
+                value={grading}
+                onChange={(e) => setGrading(e.target.value as GradingCompany)}
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
+              >
+                {GRADINGS.map((g) => (
+                  <option key={g} value={g}>
+                    {GRADING_LABELS[g]}
                   </option>
                 ))}
               </select>

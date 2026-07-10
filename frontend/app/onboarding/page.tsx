@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { getApiErrorMessage, apiFetch } from "@/lib/api";
 import { useAuth, type CurrentUser } from "@/lib/AuthContext";
 import { getAccessToken, postAuthPath } from "@/lib/auth";
@@ -23,6 +24,13 @@ export default function OnboardingPage() {
   const [lastName, setLastName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // setUser(updated) below makes this component's own guard go true (the
+  // just-submitted user now has a first_name), which would otherwise swap
+  // this page to <AuthPageSpinner /> while router.push's navigation is
+  // still in flight — collapsing the page and snapping the footer up for
+  // however long that takes. Once we've kicked off our own forward
+  // navigation, keep rendering the last real form instead.
+  const [navigatingAway, setNavigatingAway] = useState(false);
 
   useEffect(() => {
     if (isLoading || checkedRef.current) return;
@@ -50,6 +58,7 @@ export default function OnboardingPage() {
         body: { role, first_name: firstName, last_name: lastName },
       });
       setUser(updated);
+      setNavigatingAway(true);
       router.push(`/onboarding/${role}`);
     } catch (err) {
       setError(getApiErrorMessage(err, "Something went wrong. Please try again."));
@@ -57,8 +66,11 @@ export default function OnboardingPage() {
     }
   }
 
-  if (isLoading || !user || user.onboarding_completed || user.first_name) {
-    return null;
+  if (isLoading || !user) {
+    return <AuthPageSpinner />;
+  }
+  if (!navigatingAway && (user.onboarding_completed || user.first_name)) {
+    return <AuthPageSpinner />;
   }
 
   return (

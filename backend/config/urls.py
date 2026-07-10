@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import include, path
 
 from apps.users.views import (
+    AdminUserDetailView,
     AdminUserSearchView,
     ApproveVendorView,
     GoogleLoginView,
@@ -9,6 +10,7 @@ from apps.users.views import (
     OnboardingDetailsView,
     OnboardingView,
     PendingVendorListView,
+    ProfileView,
     RejectVendorView,
     SetUserRoleView,
 )
@@ -29,6 +31,7 @@ urlpatterns = [
         OnboardingDetailsView.as_view(),
         name="onboarding-details",
     ),
+    path("api/v1/auth/profile/", ProfileView.as_view(), name="profile"),
     path("api/v1/auth/google/", GoogleLoginView.as_view(), name="google-login"),
     path("api/v1/auth/microsoft/", MicrosoftLoginView.as_view(), name="microsoft-login"),
     # Admin vendor approval.
@@ -49,6 +52,7 @@ urlpatterns = [
     ),
     # Admin user management (search + change a user's role).
     path("api/v1/admin/users/", AdminUserSearchView.as_view(), name="admin-user-search"),
+    path("api/v1/admin/users/<int:pk>/", AdminUserDetailView.as_view(), name="admin-user-detail"),
     path(
         "api/v1/admin/users/<int:pk>/set-role/",
         SetUserRoleView.as_view(),

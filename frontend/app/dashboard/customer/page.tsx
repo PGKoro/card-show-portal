@@ -8,12 +8,20 @@ export default function CustomerDashboardPage() {
       <div className="mx-auto max-w-3xl">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-2xl font-semibold">My Messages</h1>
-          <Link
-            href="/vendors"
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-          >
-            Browse Vendors
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              href="/dashboard/settings"
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+            >
+              Profile Settings
+            </Link>
+            <Link
+              href="/vendors"
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+            >
+              Browse Vendors
+            </Link>
+          </div>
         </div>
 
         <div className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white shadow-sm dark:divide-gray-800 dark:border-gray-800">

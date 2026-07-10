@@ -15,6 +15,7 @@ from .models import User
 from .serializers import (
     OnboardingBasicSerializer,
     OnboardingDetailsSerializer,
+    ProfileSerializer,
     UserDetailsSerializer,
 )
 
@@ -53,6 +54,26 @@ class OnboardingDetailsView(generics.UpdateAPIView):
 
     permission_classes = [IsAuthenticated]
     serializer_class = OnboardingDetailsSerializer
+
+    def get_object(self):
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+        super().update(request, *args, **kwargs)
+        return Response(UserDetailsSerializer(request.user).data)
+
+
+class ProfileView(generics.UpdateAPIView):
+    """
+    PATCH /api/v1/auth/profile/ — "Profile Settings" for an
+    already-onboarded user: edit your own name and role-specific details
+    (business info for vendors, interests for customers) after the fact.
+    See ProfileSerializer for exactly what's editable — role itself is
+    never touched here.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProfileSerializer
 
     def get_object(self):
         return self.request.user
@@ -119,6 +140,19 @@ class AdminUserSearchView(generics.ListAPIView):
         if search:
             queryset = queryset.filter(email__icontains=search)
         return queryset
+
+
+class AdminUserDetailView(generics.RetrieveAPIView):
+    """
+    GET /api/v1/admin/users/<id>/ — full submitted profile for one user
+    (used by the "view details" link on a pending vendor approval).
+    UserDetailsSerializer never includes password, so there's nothing to
+    exclude there.
+    """
+
+    permission_classes = [IsAdminRole]
+    serializer_class = UserDetailsSerializer
+    queryset = User.objects.all()
 
 
 class SetUserRoleView(APIView):

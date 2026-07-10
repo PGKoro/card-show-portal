@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { PlaceholderImage } from "@/components/PlaceholderImage";
-import { CONDITION_LABELS, STATUS_LABELS, type InventoryItem } from "@/lib/mockData";
+import { CONDITION_LABELS, GRADING_LABELS, STATUS_LABELS, type InventoryItem } from "@/lib/mockData";
 
 const STATUS_STYLES: Record<InventoryItem["status"], string> = {
   available: "bg-emerald-100 text-emerald-800",
@@ -43,6 +43,11 @@ export function InventoryCard({
           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
             {CONDITION_LABELS[item.condition]}
           </span>
+          {item.grading && item.grading !== "ungraded" && (
+            <span className="rounded-full bg-brand-blue/10 px-2 py-0.5 text-xs font-medium text-brand-blue">
+              {GRADING_LABELS[item.grading]}
+            </span>
+          )}
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[item.status]}`}>
             {STATUS_LABELS[item.status]}
           </span>

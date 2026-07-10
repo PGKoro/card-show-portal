@@ -32,6 +32,17 @@ export const CONDITION_LABELS: Record<InventoryCondition, string> = {
   fair: "Fair",
 };
 
+export type GradingCompany = "ungraded" | "psa" | "bgs" | "sgc" | "cgc" | "other";
+
+export const GRADING_LABELS: Record<GradingCompany, string> = {
+  ungraded: "Ungraded",
+  psa: "PSA",
+  bgs: "BGS",
+  sgc: "SGC",
+  cgc: "CGC",
+  other: "Other",
+};
+
 export type InventoryStatus = "available" | "reserved" | "sold";
 
 export const STATUS_LABELS: Record<InventoryStatus, string> = {
@@ -56,6 +67,9 @@ export type InventoryItem = {
   title: string;
   price: number;
   condition: InventoryCondition;
+  /** Absent on the mock catalog data below; real listings from the API
+   *  always set this (defaulting to "ungraded"). */
+  grading?: GradingCompany;
   status: InventoryStatus;
   description: string;
 };

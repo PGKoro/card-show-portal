@@ -1,4 +1,7 @@
+import { clearTokens, getRefreshToken, saveTokens } from "@/lib/auth";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const TOKEN_REFRESH_PATH = "/auth/token/refresh/";
 
 /** Shape of a DRF PageNumberPagination response (see apps.core.pagination). */
 export type PaginatedResponse<T> = {
@@ -25,14 +28,8 @@ type RequestOptions = {
   accessToken?: string;
 };
 
-/**
- * Thin fetch wrapper for the Django REST Framework backend. Endpoints are
- * versioned under /api/v1/ (see backend/config/urls.py).
- */
-export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, accessToken } = options;
-
-  const response = await fetch(`${API_BASE_URL}/api/v1${path}`, {
+function rawFetch(path: string, method: string, body: unknown, accessToken?: string) {
+  return fetch(`${API_BASE_URL}/api/v1${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -40,14 +37,71 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+}
 
+async function toResult<T>(response: Response): Promise<T> {
   const data = response.status !== 204 ? await response.json().catch(() => null) : null;
-
   if (!response.ok) {
     throw new ApiError(response.status, data);
   }
-
   return data as T;
+}
+
+// Access tokens are short-lived (see SIMPLE_JWT.ACCESS_TOKEN_LIFETIME); a
+// session left open past that gets a 401 on its next request. This dedupes
+// concurrent refreshes (several dashboard fetches can 401 at once) so only
+// one call to the refresh endpoint goes out.
+let refreshPromise: Promise<string> | null = null;
+
+function refreshAccessToken(): Promise<string> {
+  if (refreshPromise) return refreshPromise;
+
+  const refresh = getRefreshToken();
+  if (!refresh) {
+    return Promise.reject(new ApiError(401, null));
+  }
+
+  refreshPromise = rawFetch(TOKEN_REFRESH_PATH, "POST", { refresh }, undefined)
+    .then((response) => toResult<{ access: string; refresh?: string }>(response))
+    .then((data) => {
+      // ROTATE_REFRESH_TOKENS is on, so a fresh refresh token comes back too.
+      saveTokens({ access: data.access, refresh: data.refresh ?? refresh });
+      return data.access;
+    })
+    .catch((err) => {
+      clearTokens();
+      throw err;
+    })
+    .finally(() => {
+      refreshPromise = null;
+    });
+
+  return refreshPromise;
+}
+
+/**
+ * Thin fetch wrapper for the Django REST Framework backend. Endpoints are
+ * versioned under /api/v1/ (see backend/config/urls.py). A 401 on an
+ * authenticated call is treated as an expired access token: it's silently
+ * refreshed once and the request retried, so a session doesn't just stop
+ * working partway through a page (see SIMPLE_JWT.ACCESS_TOKEN_LIFETIME).
+ */
+export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { method = "GET", body, accessToken } = options;
+
+  const response = await rawFetch(path, method, body, accessToken);
+
+  if (response.status === 401 && accessToken && path !== TOKEN_REFRESH_PATH) {
+    try {
+      const newAccessToken = await refreshAccessToken();
+      return await toResult<T>(await rawFetch(path, method, body, newAccessToken));
+    } catch {
+      // Refresh token is missing/expired too — fall through and surface the
+      // original 401 so callers handle it the same way as any other error.
+    }
+  }
+
+  return toResult<T>(response);
 }
 
 /**

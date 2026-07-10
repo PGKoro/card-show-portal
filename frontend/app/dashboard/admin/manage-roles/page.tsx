@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { Pagination } from "@/components/Pagination";
 import { ApiError, getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
@@ -24,6 +25,7 @@ type Feedback = { id: number; text: string };
 const ROLES: Role[] = ["customer", "vendor", "admin"];
 
 export default function ManageRolesPage() {
+  const confirm = useConfirm();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [results, setResults] = useState<UserResult[]>([]);
@@ -38,6 +40,18 @@ export default function ManageRolesPage() {
     let cancelled = false;
     const timeout = setTimeout(() => {
       if (cancelled) return;
+
+      // Search-only: an empty query used to fall through to the backend as
+      // `?search=`, which returns every account paginated. Require an
+      // actual email fragment before hitting the API at all.
+      if (!search.trim()) {
+        setResults([]);
+        setHasNext(false);
+        setHasPrevious(false);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       apiFetch<PaginatedResponse<UserResult>>(
         `/admin/users/?search=${encodeURIComponent(search)}&page_size=${PAGE_SIZE}&page=${page}`,
@@ -78,6 +92,20 @@ export default function ManageRolesPage() {
 
   async function handleSetRole(user: UserResult, role: Role) {
     if (role === user.role) return;
+
+    const ok = await confirm({
+      title: `Change ${user.email} to ${role}?`,
+      message:
+        role === "admin"
+          ? "They'll get full admin access to this site."
+          : role === "vendor"
+            ? "They'll need approval before they can list inventory."
+            : "They'll lose vendor or admin access.",
+      confirmLabel: "Change role",
+      tone: role === "admin" ? "danger" : "default",
+    });
+    if (!ok) return;
+
     setUpdatingPk(user.pk);
     try {
       const updated = await apiFetch<UserResult>(`/admin/users/${user.pk}/set-role/`, {
@@ -134,7 +162,7 @@ export default function ManageRolesPage() {
 
         {!loading && results.length === 0 ? (
           <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
-            {search ? "No matching users." : "No users found."}
+            {search.trim() ? "No matching users." : "Search for a user by email to manage their role."}
           </p>
         ) : (
           <div className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white shadow-sm dark:divide-gray-800 dark:border-gray-800">

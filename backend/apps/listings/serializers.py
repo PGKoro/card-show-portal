@@ -13,6 +13,7 @@ class ListingSerializer(serializers.ModelSerializer):
             "category",
             "price",
             "condition",
+            "grading",
             "status",
             "created_at",
         )
