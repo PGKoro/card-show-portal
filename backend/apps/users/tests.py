@@ -471,6 +471,18 @@ class AdminUserManagementTests(APITestCase):
         emails = [u["email"] for u in response.data["results"]]
         self.assertIn("future.admin@example.com", emails)
 
+    def test_search_finds_matching_vendor_by_business_name(self):
+        User.objects.create_user(
+            email="cardking@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Card King Collectibles",
+        )
+        response = self.client.get("/api/v1/admin/users/?search=card king", **self.auth_header())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        emails = [u["email"] for u in response.data["results"]]
+        self.assertIn("cardking@example.com", emails)
+
     def test_search_includes_existing_admins(self):
         # Manage Roles needs to find admins too, so they can be demoted.
         response = self.client.get("/api/v1/admin/users/?search=admin3", **self.auth_header())
@@ -614,4 +626,53 @@ class AdminUserDetailTests(APITestCase):
         response = self.client.get(
             "/api/v1/admin/users/999999/", HTTP_AUTHORIZATION=f"Bearer {self.admin_access}"
         )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class PublicVendorDetailTests(APITestCase):
+    """Covers the public vendor profile endpoint (floor map click-through target)."""
+
+    def setUp(self):
+        self.vendor = User.objects.create_user(
+            email="public-vendor@example.com",
+            password="s3cret!23",
+            business_name="Public Cards Co",
+            business_description="Selling vintage and modern.",
+            location="Reno, NV",
+            category_tags=["vintage"],
+            role=User.Role.VENDOR,
+            vendor_status=User.VendorStatus.PENDING_REVIEW,
+        )
+        self.customer = User.objects.create_user(
+            email="public-cust@example.com", password="s3cret!23"
+        )
+
+    def test_anonymous_visitor_can_view_vendor_profile(self):
+        response = self.client.get(f"/api/v1/vendors/{self.vendor.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["business_name"], "Public Cards Co")
+        self.assertEqual(response.data["business_description"], "Selling vintage and modern.")
+        self.assertEqual(response.data["location"], "Reno, NV")
+        self.assertEqual(response.data["category_tags"], ["vintage"])
+
+    def test_vendor_profile_never_exposes_sensitive_fields(self):
+        response = self.client.get(f"/api/v1/vendors/{self.vendor.pk}/")
+        self.assertNotIn("email", response.data)
+        self.assertNotIn("vendor_status", response.data)
+        self.assertNotIn("password", response.data)
+
+    def test_visible_regardless_of_approval_status(self):
+        # The floor map reflects who's physically at the show, not who's
+        # cleared to list online yet — a still-pending vendor's profile
+        # should still be reachable via a linked booth's click-through.
+        self.assertEqual(self.vendor.vendor_status, User.VendorStatus.PENDING_REVIEW)
+        response = self.client.get(f"/api/v1/vendors/{self.vendor.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_404_for_non_vendor_account(self):
+        response = self.client.get(f"/api/v1/vendors/{self.customer.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_404_for_unknown_pk(self):
+        response = self.client.get("/api/v1/vendors/999999/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

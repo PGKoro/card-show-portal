@@ -69,7 +69,15 @@ export default function EditEventPage() {
         >
           ← Manage Events
         </Link>
-        <h1 className="mb-6 text-2xl font-semibold">Edit Event</h1>
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <h1 className="text-2xl font-semibold">Edit Event</h1>
+          <Link
+            href={`/dashboard/admin/events/${params.eventId}/map`}
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+          >
+            Floor Map
+          </Link>
+        </div>
         <EventForm
           submitLabel="Save changes"
           initialValues={{

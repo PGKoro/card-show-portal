@@ -16,6 +16,9 @@ export type ShowEvent = {
   estimated_cards: number;
   estimated_attendees: number;
   status: EventStatus;
+  /** Doesn't say whether an image has actually been uploaded — that's
+   *  only ever revealed through the gated /events/:id/map/ endpoint. */
+  map_visible: boolean;
 };
 
 const EVENT_IMAGES = ["/cardshow1.webp", "/cardshow2.avif", "/cardshow3.jpeg"];

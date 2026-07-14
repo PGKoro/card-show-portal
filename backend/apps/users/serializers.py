@@ -193,3 +193,16 @@ class ProfileSerializer(serializers.ModelSerializer):
             validated_data.pop("business_description", None)
             validated_data.pop("location", None)
         return super().update(instance, validated_data)
+
+
+class PublicVendorSerializer(serializers.ModelSerializer):
+    """
+    GET /api/v1/vendors/<id>/ — public-safe profile for a vendor account
+    (business info only; never email/vendor_status/etc). Backs the floor
+    map's click-through for booths linked to a real account, and that
+    vendor's own minimal public profile page.
+    """
+
+    class Meta:
+        model = User
+        fields = ("pk", "business_name", "business_description", "location", "category_tags")

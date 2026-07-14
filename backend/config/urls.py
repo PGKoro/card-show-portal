@@ -1,6 +1,9 @@
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from apps.listings.views import PublicVendorListingsView
 from apps.users.views import (
     AdminUserDetailView,
     AdminUserSearchView,
@@ -11,6 +14,7 @@ from apps.users.views import (
     OnboardingView,
     PendingVendorListView,
     ProfileView,
+    PublicVendorDetailView,
     RejectVendorView,
     SetUserRoleView,
 )
@@ -58,7 +62,21 @@ urlpatterns = [
         SetUserRoleView.as_view(),
         name="set-user-role",
     ),
+    # Public vendor profile (business info + their listings) — backs the
+    # floor map's click-through for booths linked to a real account.
+    path("api/v1/vendors/<int:pk>/", PublicVendorDetailView.as_view(), name="public-vendor-detail"),
+    path(
+        "api/v1/vendors/<int:pk>/listings/",
+        PublicVendorListingsView.as_view(),
+        name="public-vendor-listings",
+    ),
     # allauth's own URLs, needed internally for the OAuth handshake and
     # account email flows even though the frontend never renders them.
     path("accounts/", include("allauth.urls")),
 ]
+
+# User-uploaded media (event floor maps) — served directly by the dev
+# server. Production would need a real storage/CDN backend instead; out of
+# scope for this project (local Docker only, no Supabase/cloud infra).
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

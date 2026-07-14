@@ -5,14 +5,17 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { FloorMapCanvas } from "@/components/FloorMapCanvas";
 import { apiFetch } from "@/lib/api";
 import { formatEventDateRange, getEventImage, type ShowEvent } from "@/lib/events";
+import type { EventMap } from "@/lib/floorMap";
 
 export default function EventDetailPage() {
   const params = useParams<{ eventId: string }>();
   const [event, setEvent] = useState<ShowEvent | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [map, setMap] = useState<EventMap | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +33,22 @@ export default function EventDetailPage() {
       cancelled = true;
     };
   }, [params.eventId]);
+
+  useEffect(() => {
+    if (!event?.map_visible) return;
+    let cancelled = false;
+    apiFetch<EventMap>(`/events/${event.id}/map/`)
+      .then((data) => {
+        if (!cancelled) setMap(data);
+      })
+      .catch(() => {
+        // Quietly skip the section — this can only happen if visibility was
+        // just turned off, which the next event fetch will reflect anyway.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [event?.id, event?.map_visible]);
 
   if (loading) {
     return null;
@@ -116,6 +135,18 @@ export default function EventDetailPage() {
             </div>
           ))}
         </div>
+
+        {map && (
+          <div className="mt-8">
+            <h2 className="text-lg font-semibold">Floor Map</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Hover a booth for details, or tap it on mobile.
+            </p>
+            <div className="mt-3">
+              <FloorMapCanvas map={map} />
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
