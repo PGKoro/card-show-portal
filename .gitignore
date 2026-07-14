@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+# Django user-uploaded media (event floor maps, etc.) — local dev only,
+# served straight off disk from backend/media/ via MEDIA_ROOT.
+backend/media/
+
 # Distribution / packaging
 .Python
 build/

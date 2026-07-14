@@ -3,9 +3,10 @@ from allauth.socialaccount.providers.microsoft.views import MicrosoftGraphOAuth2
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
 from django.conf import settings
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -16,6 +17,7 @@ from .serializers import (
     OnboardingBasicSerializer,
     OnboardingDetailsSerializer,
     ProfileSerializer,
+    PublicVendorSerializer,
     UserDetailsSerializer,
 )
 
@@ -122,10 +124,13 @@ class RejectVendorView(VendorDecisionView):
 
 class AdminUserSearchView(generics.ListAPIView):
     """
-    GET /api/v1/admin/users/?search=<email>&role=<vendor|customer|admin>.
-    Backs the "Manage Roles" tool (search any user to change their role) and
-    the event vendor-picker (?role=vendor, to find vendors to attach to an
-    event).
+    GET /api/v1/admin/users/?search=<email or business name>&role=<vendor|customer|admin>.
+    Backs the "Manage Roles" tool (search any user to change their role), the
+    event vendor-picker (?role=vendor, to find vendors to attach to an
+    event), and the floor-map booth vendor-picker. `search` matches email OR
+    business_name — vendors are more often found by their business name than
+    their account email, and business_name is blank for non-vendor users so
+    this is a no-op there.
     """
 
     permission_classes = [IsAdminRole]
@@ -138,7 +143,9 @@ class AdminUserSearchView(generics.ListAPIView):
         if role in (User.Role.VENDOR, User.Role.CUSTOMER, User.Role.ADMIN):
             queryset = queryset.filter(role=role)
         if search:
-            queryset = queryset.filter(email__icontains=search)
+            queryset = queryset.filter(
+                Q(email__icontains=search) | Q(business_name__icontains=search)
+            )
         return queryset
 
 
@@ -213,3 +220,18 @@ class MicrosoftLoginView(SocialLoginView):
     adapter_class = MicrosoftGraphOAuth2Adapter
     client_class = OAuth2Client
     callback_url = settings.MICROSOFT_OAUTH_CALLBACK_URL
+
+
+class PublicVendorDetailView(generics.RetrieveAPIView):
+    """
+    GET /api/v1/vendors/<id>/ — public profile for a vendor account
+    (business_name/description/location/category_tags only). Backs the
+    floor map's click-through for booths linked to a real account, and
+    that vendor's own minimal public profile page. Any vendor account
+    qualifies regardless of approval status — the map reflects who's
+    physically at the show, not who's cleared to list online yet.
+    """
+
+    permission_classes = [AllowAny]
+    serializer_class = PublicVendorSerializer
+    queryset = User.objects.filter(role=User.Role.VENDOR)

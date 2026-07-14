@@ -79,6 +79,29 @@ function refreshAccessToken(): Promise<string> {
   return refreshPromise;
 }
 
+// Shared by apiFetch and apiFetchMultipart: retries once via a refreshed
+// access token on a 401, using whatever request-builder the caller needs
+// (JSON body vs FormData have different headers/serialization).
+async function fetchWithRefresh(
+  path: string,
+  accessToken: string | undefined,
+  buildRequest: (token?: string) => Promise<Response>,
+): Promise<Response> {
+  const response = await buildRequest(accessToken);
+
+  if (response.status === 401 && accessToken && path !== TOKEN_REFRESH_PATH) {
+    try {
+      const newAccessToken = await refreshAccessToken();
+      return await buildRequest(newAccessToken);
+    } catch {
+      // Refresh token is missing/expired too — fall through and surface the
+      // original 401 so callers handle it the same way as any other error.
+    }
+  }
+
+  return response;
+}
+
 /**
  * Thin fetch wrapper for the Django REST Framework backend. Endpoints are
  * versioned under /api/v1/ (see backend/config/urls.py). A 401 on an
@@ -88,19 +111,31 @@ function refreshAccessToken(): Promise<string> {
  */
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, accessToken } = options;
+  const response = await fetchWithRefresh(path, accessToken, (token) =>
+    rawFetch(path, method, body, token),
+  );
+  return toResult<T>(response);
+}
 
-  const response = await rawFetch(path, method, body, accessToken);
-
-  if (response.status === 401 && accessToken && path !== TOKEN_REFRESH_PATH) {
-    try {
-      const newAccessToken = await refreshAccessToken();
-      return await toResult<T>(await rawFetch(path, method, body, newAccessToken));
-    } catch {
-      // Refresh token is missing/expired too — fall through and surface the
-      // original 401 so callers handle it the same way as any other error.
-    }
-  }
-
+/**
+ * Like apiFetch, but for multipart/form-data (file uploads) — used for the
+ * event floor map's image upload. Don't set a Content-Type header
+ * manually; the browser fills in the correct multipart boundary for a
+ * FormData body on its own.
+ */
+export async function apiFetchMultipart<T>(
+  path: string,
+  formData: FormData,
+  options: { method?: "POST" | "PATCH" | "PUT"; accessToken?: string } = {},
+): Promise<T> {
+  const { method = "POST", accessToken } = options;
+  const buildRequest = (token?: string) =>
+    fetch(`${API_BASE_URL}/api/v1${path}`, {
+      method,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: formData,
+    });
+  const response = await fetchWithRefresh(path, accessToken, buildRequest);
   return toResult<T>(response);
 }
 
