@@ -10,8 +10,13 @@ from rest_framework.views import APIView
 from apps.core.permissions import IsAdminRole
 from apps.users.models import User
 
-from .models import MAP_IMAGE_PRESET_KEYS, BoothAssignment, Event
-from .serializers import BoothAssignmentSerializer, EventMapSerializer, EventSerializer
+from .models import MAP_IMAGE_PRESET_KEYS, BoothAssignment, Event, MapSection
+from .serializers import (
+    BoothAssignmentSerializer,
+    EventMapSerializer,
+    EventSerializer,
+    MapSectionSerializer,
+)
 
 
 class EventListCreateView(generics.ListCreateAPIView):
@@ -158,3 +163,39 @@ class BoothAssignmentDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, IsAdminRole]
     serializer_class = BoothAssignmentSerializer
     queryset = BoothAssignment.objects.all()
+
+
+class MapSectionListCreateView(generics.ListCreateAPIView):
+    """
+    GET/POST /api/v1/events/<id>/sections/ — admin-only listing/placement
+    of category-zone overlays for one event. Publicly exposed (read-only,
+    no sensitive data) via EventMapView/EventMapSerializer instead.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminRole]
+    serializer_class = MapSectionSerializer
+
+    def get_event(self):
+        return get_object_or_404(Event, pk=self.kwargs["pk"])
+
+    def get_queryset(self):
+        return MapSection.objects.filter(event=self.get_event())
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["event"] = self.get_event()
+        return context
+
+    def perform_create(self, serializer):
+        serializer.save(event=self.get_event())
+
+
+class MapSectionDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET/PATCH/DELETE /api/v1/events/sections/<id>/ — admin-only edit
+    (reposition/resize/recategorize) or removal of a single category zone.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminRole]
+    serializer_class = MapSectionSerializer
+    queryset = MapSection.objects.all()

@@ -36,6 +36,23 @@ export type PublicBooth = {
   vendor_category_tags: string[];
 };
 
+/**
+ * A labeled zone drawn on the map to indicate what a general area is for
+ * (e.g. "top-left corner is Pokémon vendors") — a wayfinding overlay,
+ * independent of individual booth markers. No admin-vs-public variant
+ * needed here, unlike Booth, since there's no sensitive data on a section.
+ */
+export type MapSection = {
+  id: number;
+  category: string;
+  position_x: string;
+  position_y: string;
+  width: string;
+  height: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type EventMap = {
   id: number;
   name: string;
@@ -44,6 +61,7 @@ export type EventMap = {
   map_image_preset: string;
   map_visible: boolean;
   booths: PublicBooth[];
+  sections: MapSection[];
 };
 
 /** Parses a DRF DecimalField string into a number for CSS positioning. */
@@ -78,3 +96,19 @@ export function resolveMapImage(map: {
     map.map_image_url ?? (map.map_image_preset ? presetImagePath(map.map_image_preset) ?? null : null)
   );
 }
+
+/**
+ * Standard booth footprints (percentages of the map image) — "large" is
+ * just two "small" booths pushed together lengthwise (same depth, double
+ * width), matching how real card shows sell booths in table units. Sized
+ * small enough that a single map can comfortably hold 50-100+ booths
+ * (a 4%-wide booth still leaves room for ~25 across a row with gaps to
+ * spare). These are quick-placement defaults, not hard limits: a booth can
+ * still be dragged/resized freely on the canvas after being placed.
+ */
+export const BOOTH_SIZE_PRESETS = {
+  small: { label: "Small", w: 4, h: 3 },
+  large: { label: "Large", w: 8, h: 3 },
+} as const;
+
+export type BoothSizeKey = keyof typeof BOOTH_SIZE_PRESETS;

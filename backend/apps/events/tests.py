@@ -669,3 +669,153 @@ class EventFloorMapTests(APITestCase):
         self.assertNotIn("555-1234", response_text)
         for booth in response.data["booths"]:
             self.assertNotIn("unlinked_vendor_contact", booth)
+
+
+class MapSectionTests(APITestCase):
+    """Covers category-zone overlay CRUD and its exposure on the public /map/ endpoint."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            email="section-admin@example.com", password="s3cret!23"
+        )
+        self.customer = User.objects.create_user(
+            email="section-cust@example.com", password="s3cret!23"
+        )
+        self.event = Event.objects.create(
+            name="Section Show",
+            venue="Section Hall",
+            city="Section City",
+            start_date=datetime.date.today(),
+        )
+
+    def access_for(self, email, password="s3cret!23"):
+        login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
+        return login.data["access"]
+
+    def admin_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('section-admin@example.com')}"}
+
+    def section_payload(self, **overrides):
+        payload = {
+            "category": "pokemon",
+            "position_x": "0.00",
+            "position_y": "0.00",
+            "width": "25.00",
+            "height": "25.00",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_admin_can_create_section(self):
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/sections/",
+            self.section_payload(),
+            format="json",
+            **self.admin_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["category"], "pokemon")
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.map_sections.count(), 1)
+
+    def test_non_admin_cannot_create_section(self):
+        access = self.access_for("section-cust@example.com")
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/sections/",
+            self.section_payload(),
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_invalid_category_is_rejected(self):
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/sections/",
+            self.section_payload(category="not-a-real-category"),
+            format="json",
+            **self.admin_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_position_and_size_are_range_validated(self):
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/sections/",
+            self.section_payload(width="0.00"),
+            format="json",
+            **self.admin_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/sections/",
+            self.section_payload(position_x="101.00"),
+            format="json",
+            **self.admin_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_admin_can_reposition_and_recategorize_section(self):
+        create = self.client.post(
+            f"/api/v1/events/{self.event.pk}/sections/",
+            self.section_payload(),
+            format="json",
+            **self.admin_auth(),
+        )
+        section_id = create.data["id"]
+
+        response = self.client.patch(
+            f"/api/v1/events/sections/{section_id}/",
+            {"category": "vintage", "position_x": "50.00"},
+            format="json",
+            **self.admin_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["category"], "vintage")
+        self.assertEqual(response.data["position_x"], "50.00")
+
+    def test_admin_can_delete_section(self):
+        create = self.client.post(
+            f"/api/v1/events/{self.event.pk}/sections/",
+            self.section_payload(),
+            format="json",
+            **self.admin_auth(),
+        )
+        section_id = create.data["id"]
+
+        response = self.client.delete(
+            f"/api/v1/events/sections/{section_id}/", **self.admin_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(self.event.map_sections.count(), 0)
+
+    def test_non_admin_cannot_manage_sections(self):
+        access = self.access_for("section-cust@example.com")
+        response = self.client.get(
+            f"/api/v1/events/{self.event.pk}/sections/", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_public_map_includes_sections_when_visible(self):
+        self.client.post(
+            f"/api/v1/events/{self.event.pk}/sections/",
+            self.section_payload(),
+            format="json",
+            **self.admin_auth(),
+        )
+        self.client.post(
+            f"/api/v1/events/{self.event.pk}/map-preset/",
+            {"preset": "single_hall"},
+            format="json",
+            **self.admin_auth(),
+        )
+        self.client.patch(
+            f"/api/v1/events/{self.event.pk}/",
+            {"map_visible": True},
+            format="json",
+            **self.admin_auth(),
+        )
+
+        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["sections"]), 1)
+        self.assertEqual(response.data["sections"][0]["category"], "pokemon")

@@ -3,6 +3,8 @@ import datetime
 from django.conf import settings
 from django.db import models
 
+from apps.core.constants import CATEGORY_CHOICES
+
 # Generic layout diagrams an admin can fall back to when a venue can't
 # provide a real floor plan. The actual image assets are static frontend
 # files (frontend/public/preset-maps/) — this backend only needs to
@@ -126,3 +128,29 @@ class BoothAssignment(models.Model):
 
     def __str__(self):
         return f"Booth {self.booth_number} ({self.event.name})"
+
+
+class MapSection(models.Model):
+    """
+    A labeled zone drawn on an event's floor map to indicate what a general
+    area is for (e.g. "top-left corner is Pokémon vendors") — purely a
+    wayfinding overlay, independent of individual BoothAssignment markers.
+    Position/size use the same percentage convention as BoothAssignment.
+    """
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="map_sections")
+    category = models.CharField(max_length=50, choices=CATEGORY_CHOICES)
+
+    position_x = models.DecimalField(max_digits=5, decimal_places=2)
+    position_y = models.DecimalField(max_digits=5, decimal_places=2)
+    width = models.DecimalField(max_digits=5, decimal_places=2)
+    height = models.DecimalField(max_digits=5, decimal_places=2)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.get_category_display()} section ({self.event.name})"

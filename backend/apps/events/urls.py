@@ -8,6 +8,8 @@ from .views import (
     EventMapImageUploadView,
     EventMapPresetView,
     EventMapView,
+    MapSectionDetailView,
+    MapSectionListCreateView,
 )
 
 urlpatterns = [
@@ -18,4 +20,6 @@ urlpatterns = [
     path("<int:pk>/map-preset/", EventMapPresetView.as_view(), name="event-map-preset"),
     path("<int:pk>/booths/", BoothAssignmentListCreateView.as_view(), name="event-booths"),
     path("booths/<int:pk>/", BoothAssignmentDetailView.as_view(), name="booth-detail"),
+    path("<int:pk>/sections/", MapSectionListCreateView.as_view(), name="event-sections"),
+    path("sections/<int:pk>/", MapSectionDetailView.as_view(), name="section-detail"),
 ]

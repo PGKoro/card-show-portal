@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.users.models import User
 
-from .models import BoothAssignment, Event
+from .models import BoothAssignment, Event, MapSection
 
 
 class EventSerializer(serializers.ModelSerializer):
@@ -184,6 +184,52 @@ class BoothAssignmentSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class MapSectionSerializer(serializers.ModelSerializer):
+    """
+    Admin-facing read/write serializer for a category zone (e.g. "top-left
+    corner is Pokémon vendors") — a purely visual wayfinding overlay, with
+    no vendor/booth relationship. `event` is supplied by the view from the
+    URL, same as BoothAssignmentSerializer.
+    """
+
+    class Meta:
+        model = MapSection
+        fields = (
+            "id",
+            "category",
+            "position_x",
+            "position_y",
+            "width",
+            "height",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_position_x(self, value):
+        return self._validate_percentage(value, "position_x")
+
+    def validate_position_y(self, value):
+        return self._validate_percentage(value, "position_y")
+
+    def validate_width(self, value):
+        return self._validate_percentage(value, "width", allow_zero=False)
+
+    def validate_height(self, value):
+        return self._validate_percentage(value, "height", allow_zero=False)
+
+    @staticmethod
+    def _validate_percentage(value, field_name, allow_zero=True):
+        lower_bound = 0 if allow_zero else 0.01
+        if value < lower_bound or value > 100:
+            raise serializers.ValidationError(f"{field_name} must be between 0 and 100.")
+        return value
+
+    def create(self, validated_data):
+        validated_data["event"] = self.context["event"]
+        return super().create(validated_data)
+
+
 class PublicBoothAssignmentSerializer(serializers.ModelSerializer):
     """
     Public-facing read-only view of a booth — deliberately never includes
@@ -229,10 +275,19 @@ class EventMapSerializer(serializers.ModelSerializer):
 
     map_image_url = serializers.SerializerMethodField()
     booths = serializers.SerializerMethodField()
+    sections = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
-        fields = ("id", "name", "map_image_url", "map_image_preset", "map_visible", "booths")
+        fields = (
+            "id",
+            "name",
+            "map_image_url",
+            "map_image_preset",
+            "map_visible",
+            "booths",
+            "sections",
+        )
 
     def get_map_image_url(self, obj):
         # Deliberately doesn't fall back to a URL for map_image_preset —
@@ -248,3 +303,9 @@ class EventMapSerializer(serializers.ModelSerializer):
     def get_booths(self, obj):
         booths = obj.booth_assignments.select_related("vendor").all()
         return PublicBoothAssignmentSerializer(booths, many=True).data
+
+    def get_sections(self, obj):
+        # No sensitive data here (just a category + position), so this is
+        # safe to expose as-is — no separate public-vs-admin serializer
+        # needed like BoothAssignment has.
+        return MapSectionSerializer(obj.map_sections.all(), many=True).data

@@ -12,9 +12,9 @@ import {
   type PaginatedResponse,
 } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
-import type { Booth, EventMap } from "@/lib/floorMap";
-import { MAP_PRESETS, percent, resolveMapImage } from "@/lib/floorMap";
-import { CATEGORY_LABELS, type VendorCategory } from "@/lib/mockData";
+import type { Booth, BoothSizeKey, EventMap, MapSection } from "@/lib/floorMap";
+import { BOOTH_SIZE_PRESETS, MAP_PRESETS, percent, resolveMapImage } from "@/lib/floorMap";
+import { CATEGORY_LABELS, CATEGORY_STYLES, type VendorCategory } from "@/lib/mockData";
 
 const CATEGORIES = Object.keys(CATEGORY_LABELS) as VendorCategory[];
 
@@ -22,12 +22,16 @@ type VendorSearchResult = { pk: number; email: string; business_name: string };
 
 type Rect = { x: number; y: number; w: number; h: number };
 
+type PercentBox = { position_x: string; position_y: string; width: string; height: string };
+
+type DragTarget = { kind: "booth"; id: number } | { kind: "section"; id: number };
+
 // A marker being dragged/resized isn't persisted on every mousemove — only
 // once the gesture crosses a small pixel threshold ("moved") and finally
 // releases. A mousedown+mouseup with no movement is treated as a click that
 // opens the edit form instead of a no-op position change.
 type DragState = {
-  boothId: number;
+  target: DragTarget;
   mode: "move" | "resize";
   startClientX: number;
   startClientY: number;
@@ -39,17 +43,28 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function rectFromBooth(booth: Booth): Rect {
+function rectFrom(box: PercentBox): Rect {
   return {
-    x: percent(booth.position_x),
-    y: percent(booth.position_y),
-    w: percent(booth.width),
-    h: percent(booth.height),
+    x: percent(box.position_x),
+    y: percent(box.position_y),
+    w: percent(box.width),
+    h: percent(box.height),
   };
 }
 
 function isFulfilled<T>(result: PromiseSettledResult<T>): result is PromiseFulfilledResult<T> {
   return result.status === "fulfilled";
+}
+
+// Anchors a standard booth size at (x, y), nudging it back inside the map
+// bounds if it would otherwise overflow the edge.
+function clampBoothPlacement(x: number, y: number, size: { w: number; h: number }): Rect {
+  return {
+    x: clamp(x, 0, 100 - size.w),
+    y: clamp(y, 0, 100 - size.h),
+    w: size.w,
+    h: size.h,
+  };
 }
 
 function boothToPayload(booth: Booth) {
@@ -66,6 +81,16 @@ function boothToPayload(booth: Booth) {
   };
 }
 
+function sectionToPayload(section: MapSection) {
+  return {
+    category: section.category,
+    position_x: section.position_x,
+    position_y: section.position_y,
+    width: section.width,
+    height: section.height,
+  };
+}
+
 export default function EventMapEditorPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const router = useRouter();
@@ -76,6 +101,7 @@ export default function EventMapEditorPage() {
   const [mapImageUrl, setMapImageUrl] = useState<string | null>(null);
   const [mapImagePreset, setMapImagePreset] = useState("");
   const [booths, setBooths] = useState<Booth[]>([]);
+  const [sections, setSections] = useState<MapSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
 
@@ -90,20 +116,49 @@ export default function EventMapEditorPage() {
     map_image_preset: mapImagePreset,
   });
 
-  // Booth edits (create/reposition/resize/reassign/delete) are staged
-  // locally and only sent to the server when "Save changes" is clicked —
-  // see handleSaveChanges. savedBoothsRef mirrors the last known
-  // server-confirmed state, used both to detect whether there's anything
-  // unsaved and to power "Discard changes".
+  // Which kind of object a click-drag on the canvas background creates.
+  const [drawMode, setDrawMode] = useState<"booth" | "section">("booth");
+  const drawModeRef = useRef<"booth" | "section">("booth");
+  useEffect(() => {
+    drawModeRef.current = drawMode;
+  }, [drawMode]);
+
+  // A plain click (no drag) in booth mode drops a standard-size booth of
+  // whichever size is selected here — dragging a rectangle always makes a
+  // fully custom size instead, regardless of this setting.
+  const [boothSizePreset, setBoothSizePreset] = useState<BoothSizeKey>("small");
+  const boothSizePresetRef = useRef<BoothSizeKey>("small");
+  useEffect(() => {
+    boothSizePresetRef.current = boothSizePreset;
+  }, [boothSizePreset]);
+
+  // Booth/section edits (create/reposition/resize/reassign/delete) are
+  // staged locally and only sent to the server when "Save changes" is
+  // clicked — see handleSaveChanges. The savedXRef pair mirrors the last
+  // known server-confirmed state, used both to detect whether there's
+  // anything unsaved and to power "Discard changes".
   const savedBoothsRef = useRef<Booth[]>([]);
   const [pendingCreateIds, setPendingCreateIds] = useState<Set<number>>(new Set());
   const [pendingUpdateIds, setPendingUpdateIds] = useState<Set<number>>(new Set());
   const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<number>>(new Set());
+  const nextTempIdRef = useRef(-1);
+
+  const savedSectionsRef = useRef<MapSection[]>([]);
+  const [pendingSectionCreateIds, setPendingSectionCreateIds] = useState<Set<number>>(new Set());
+  const [pendingSectionUpdateIds, setPendingSectionUpdateIds] = useState<Set<number>>(new Set());
+  const [pendingSectionDeleteIds, setPendingSectionDeleteIds] = useState<Set<number>>(new Set());
+  const nextSectionTempIdRef = useRef(-1);
+
   const [savingChanges, setSavingChanges] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const nextTempIdRef = useRef(-1);
-  const isDirty =
+
+  const isBoothsDirty =
     pendingCreateIds.size > 0 || pendingUpdateIds.size > 0 || pendingDeleteIds.size > 0;
+  const isSectionsDirty =
+    pendingSectionCreateIds.size > 0 ||
+    pendingSectionUpdateIds.size > 0 ||
+    pendingSectionDeleteIds.size > 0;
+  const isDirty = isBoothsDirty || isSectionsDirty;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const boothsRef = useRef<Booth[]>([]);
@@ -115,11 +170,20 @@ export default function EventMapEditorPage() {
     pendingCreateIdsRef.current = pendingCreateIds;
   }, [pendingCreateIds]);
 
+  const sectionsRef = useRef<MapSection[]>([]);
+  useEffect(() => {
+    sectionsRef.current = sections;
+  }, [sections]);
+  const pendingSectionCreateIdsRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    pendingSectionCreateIdsRef.current = pendingSectionCreateIds;
+  }, [pendingSectionCreateIds]);
+
   const drawStartRef = useRef<{ x: number; y: number } | null>(null);
   const [draftRect, setDraftRect] = useState<Rect | null>(null);
 
   const dragRef = useRef<DragState | null>(null);
-  const [liveRect, setLiveRect] = useState<{ boothId: number; rect: Rect } | null>(null);
+  const [liveRect, setLiveRect] = useState<{ target: DragTarget; rect: Rect } | null>(null);
 
   const [editing, setEditing] = useState<Booth | "new" | null>(null);
   const [formRect, setFormRect] = useState<Rect | null>(null);
@@ -133,13 +197,18 @@ export default function EventMapEditorPage() {
   const [unlinkedContact, setUnlinkedContact] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
+  const [editingSection, setEditingSection] = useState<MapSection | "new" | null>(null);
+  const [sectionFormRect, setSectionFormRect] = useState<Rect | null>(null);
+  const [sectionCategory, setSectionCategory] = useState<VendorCategory>(CATEGORIES[0]);
+  const [sectionFormError, setSectionFormError] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       setPageError(null);
       try {
-        const [event, map, boothList] = await Promise.all([
+        const [event, map, boothList, sectionList] = await Promise.all([
           apiFetch<{ name: string; map_visible: boolean }>(`/events/${eventId}/`, {
             accessToken: getAccessToken() ?? undefined,
           }),
@@ -152,6 +221,9 @@ export default function EventMapEditorPage() {
           apiFetch<PaginatedResponse<Booth>>(`/events/${eventId}/booths/?page_size=100`, {
             accessToken: getAccessToken() ?? undefined,
           }),
+          apiFetch<PaginatedResponse<MapSection>>(`/events/${eventId}/sections/?page_size=100`, {
+            accessToken: getAccessToken() ?? undefined,
+          }),
         ]);
         if (cancelled) return;
         setEventName(event.name);
@@ -160,6 +232,8 @@ export default function EventMapEditorPage() {
         setMapImagePreset(map?.map_image_preset ?? "");
         setBooths(boothList.results);
         savedBoothsRef.current = boothList.results;
+        setSections(sectionList.results);
+        savedSectionsRef.current = sectionList.results;
       } catch (err) {
         if (!cancelled) setPageError(getApiErrorMessage(err, "Could not load this event."));
       } finally {
@@ -223,6 +297,25 @@ export default function EventMapEditorPage() {
     }
   }
 
+  function commitSectionRectLocally(sectionId: number, rect: Rect) {
+    setSections((current) =>
+      current.map((s) =>
+        s.id === sectionId
+          ? {
+              ...s,
+              position_x: rect.x.toFixed(2),
+              position_y: rect.y.toFixed(2),
+              width: rect.w.toFixed(2),
+              height: rect.h.toFixed(2),
+            }
+          : s,
+      ),
+    );
+    if (!pendingSectionCreateIdsRef.current.has(sectionId)) {
+      setPendingSectionUpdateIds((current) => new Set(current).add(sectionId));
+    }
+  }
+
   function resetForm() {
     setBoothNumber("");
     setAssignMode("existing");
@@ -262,6 +355,59 @@ export default function EventMapEditorPage() {
     setFormRect(null);
   }
 
+  // The rect currently shown for whichever booth the form has open — read
+  // from live `booths` state (not the `editing` snapshot) so it stays
+  // accurate if a size preset was already applied earlier in this same
+  // form session.
+  function currentBoothFormRect(): Rect | null {
+    if (editing === "new") return formRect;
+    if (!editing) return null;
+    const live = booths.find((b) => b.id === editing.id);
+    return live ? rectFrom(live) : rectFrom(editing);
+  }
+
+  function isBoothSizePresetActive(key: BoothSizeKey): boolean {
+    const current = currentBoothFormRect();
+    if (!current) return false;
+    const size = BOOTH_SIZE_PRESETS[key];
+    return Math.abs(current.w - size.w) < 0.5 && Math.abs(current.h - size.h) < 0.5;
+  }
+
+  function applyBoothSizePreset(key: BoothSizeKey) {
+    const current = currentBoothFormRect();
+    if (!current) return;
+    const size = BOOTH_SIZE_PRESETS[key];
+    const next = clampBoothPlacement(current.x, current.y, size);
+    if (editing === "new") {
+      setFormRect(next);
+    } else if (editing) {
+      commitBoothRectLocally(editing.id, next);
+    }
+  }
+
+  function resetSectionForm() {
+    setSectionCategory(CATEGORIES[0]);
+    setSectionFormError(null);
+  }
+
+  function openNewSectionForm(rect: Rect) {
+    resetSectionForm();
+    setEditingSection("new");
+    setSectionFormRect(rect);
+  }
+
+  function openEditSectionForm(section: MapSection) {
+    resetSectionForm();
+    setEditingSection(section);
+    setSectionFormRect(null);
+    setSectionCategory((section.category as VendorCategory) || CATEGORIES[0]);
+  }
+
+  function closeSectionForm() {
+    setEditingSection(null);
+    setSectionFormRect(null);
+  }
+
   // Global listeners are always mounted and no-op unless a drag or a
   // rectangle-draw is in progress (tracked via refs, not state, so this
   // effect never needs to re-subscribe mid-gesture).
@@ -292,7 +438,7 @@ export default function EventMapEditorPage() {
                 w: clamp(drag.startRect.w + dxPct, 1, 100 - drag.startRect.x),
                 h: clamp(drag.startRect.h + dyPct, 1, 100 - drag.startRect.y),
               };
-        setLiveRect({ boothId: drag.boothId, rect: next });
+        setLiveRect({ target: drag.target, rect: next });
         return;
       }
 
@@ -316,14 +462,27 @@ export default function EventMapEditorPage() {
         if (!drag.moved) {
           setLiveRect(null);
           if (drag.mode === "move") {
-            const booth = boothsRef.current.find((b) => b.id === drag.boothId);
-            if (booth) openEditForm(booth);
+            if (drag.target.kind === "booth") {
+              const booth = boothsRef.current.find((b) => b.id === drag.target.id);
+              if (booth) openEditForm(booth);
+            } else {
+              const section = sectionsRef.current.find((s) => s.id === drag.target.id);
+              if (section) openEditSectionForm(section);
+            }
           }
           return;
         }
         setLiveRect((current) => {
-          if (current && current.boothId === drag.boothId) {
-            commitBoothRectLocally(drag.boothId, current.rect);
+          if (
+            current &&
+            current.target.kind === drag.target.kind &&
+            current.target.id === drag.target.id
+          ) {
+            if (drag.target.kind === "booth") {
+              commitBoothRectLocally(drag.target.id, current.rect);
+            } else {
+              commitSectionRectLocally(drag.target.id, current.rect);
+            }
           }
           return null;
         });
@@ -331,10 +490,21 @@ export default function EventMapEditorPage() {
       }
 
       if (drawStartRef.current) {
+        const start = drawStartRef.current;
         drawStartRef.current = null;
         setDraftRect((current) => {
           if (current && current.w > 1.5 && current.h > 1.5) {
-            openNewBoothForm(current);
+            // A real drag always means "I want this exact custom size."
+            if (drawModeRef.current === "booth") {
+              openNewBoothForm(current);
+            } else {
+              openNewSectionForm(current);
+            }
+          } else if (drawModeRef.current === "booth") {
+            // A plain click drops a standard-size booth anchored there —
+            // sections still require an actual drag to draw.
+            const size = BOOTH_SIZE_PRESETS[boothSizePresetRef.current];
+            openNewBoothForm(clampBoothPlacement(start.x, start.y, size));
           }
           return null;
         });
@@ -359,28 +529,15 @@ export default function EventMapEditorPage() {
     setDraftRect({ x, y, w: 0, h: 0 });
   }
 
-  function startMove(e: React.MouseEvent, booth: Booth) {
+  function startDrag(e: React.MouseEvent, target: DragTarget, mode: "move" | "resize", rect: Rect) {
     e.stopPropagation();
     e.preventDefault();
     dragRef.current = {
-      boothId: booth.id,
-      mode: "move",
+      target,
+      mode,
       startClientX: e.clientX,
       startClientY: e.clientY,
-      startRect: rectFromBooth(booth),
-      moved: false,
-    };
-  }
-
-  function startResize(e: React.MouseEvent, booth: Booth) {
-    e.stopPropagation();
-    e.preventDefault();
-    dragRef.current = {
-      boothId: booth.id,
-      mode: "resize",
-      startClientX: e.clientX,
-      startClientY: e.clientY,
-      startRect: rectFromBooth(booth),
+      startRect: rect,
       moved: false,
     };
   }
@@ -550,25 +707,103 @@ export default function EventMapEditorPage() {
     closeForm();
   }
 
+  function handleSectionFormSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (editingSection === "new") {
+      if (!sectionFormRect) return;
+      const tempId = nextSectionTempIdRef.current--;
+      const newSection: MapSection = {
+        id: tempId,
+        category: sectionCategory,
+        position_x: sectionFormRect.x.toFixed(2),
+        position_y: sectionFormRect.y.toFixed(2),
+        width: sectionFormRect.w.toFixed(2),
+        height: sectionFormRect.h.toFixed(2),
+        created_at: "",
+        updated_at: "",
+      };
+      setSections((current) => [...current, newSection]);
+      setPendingSectionCreateIds((current) => new Set(current).add(tempId));
+    } else if (editingSection) {
+      const targetId = editingSection.id;
+      setSections((current) =>
+        current.map((s) => (s.id === targetId ? { ...s, category: sectionCategory } : s)),
+      );
+      if (!pendingSectionCreateIds.has(targetId)) {
+        setPendingSectionUpdateIds((current) => new Set(current).add(targetId));
+      }
+    }
+    closeSectionForm();
+  }
+
+  async function handleDeleteSection() {
+    if (editingSection === "new" || !editingSection) return;
+    const target = editingSection;
+    const categoryLabel = CATEGORY_LABELS[target.category as VendorCategory] ?? target.category;
+    const ok = await confirm({
+      title: "Remove this section?",
+      message: `This ${categoryLabel} zone will be removed once you save changes.`,
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    setSections((current) => current.filter((s) => s.id !== target.id));
+    if (pendingSectionCreateIds.has(target.id)) {
+      setPendingSectionCreateIds((current) => {
+        const next = new Set(current);
+        next.delete(target.id);
+        return next;
+      });
+    } else {
+      setPendingSectionUpdateIds((current) => {
+        const next = new Set(current);
+        next.delete(target.id);
+        return next;
+      });
+      setPendingSectionDeleteIds((current) => new Set(current).add(target.id));
+    }
+    closeSectionForm();
+  }
+
   function handleDiscardChanges() {
     setBooths(savedBoothsRef.current.map((b) => ({ ...b })));
     setPendingCreateIds(new Set());
     setPendingUpdateIds(new Set());
     setPendingDeleteIds(new Set());
+    setSections(savedSectionsRef.current.map((s) => ({ ...s })));
+    setPendingSectionCreateIds(new Set());
+    setPendingSectionUpdateIds(new Set());
+    setPendingSectionDeleteIds(new Set());
     setSaveError(null);
     closeForm();
+    closeSectionForm();
   }
 
   async function handleSaveChanges() {
-    const creates = booths.filter((b) => pendingCreateIds.has(b.id));
-    const updates = booths.filter((b) => pendingUpdateIds.has(b.id));
-    const deleteIds = Array.from(pendingDeleteIds);
-    if (creates.length + updates.length + deleteIds.length === 0) return;
+    const boothCreates = booths.filter((b) => pendingCreateIds.has(b.id));
+    const boothUpdates = booths.filter((b) => pendingUpdateIds.has(b.id));
+    const boothDeleteIds = Array.from(pendingDeleteIds);
+    const sectionCreates = sections.filter((s) => pendingSectionCreateIds.has(s.id));
+    const sectionUpdates = sections.filter((s) => pendingSectionUpdateIds.has(s.id));
+    const sectionDeleteIds = Array.from(pendingSectionDeleteIds);
+
+    const total =
+      boothCreates.length +
+      boothUpdates.length +
+      boothDeleteIds.length +
+      sectionCreates.length +
+      sectionUpdates.length +
+      sectionDeleteIds.length;
+    if (total === 0) return;
 
     const parts: string[] = [];
-    if (creates.length) parts.push(`${creates.length} new booth${creates.length === 1 ? "" : "s"}`);
-    if (updates.length) parts.push(`${updates.length} updated`);
-    if (deleteIds.length) parts.push(`${deleteIds.length} removed`);
+    if (boothCreates.length) parts.push(`${boothCreates.length} new booth${boothCreates.length === 1 ? "" : "s"}`);
+    if (boothUpdates.length) parts.push(`${boothUpdates.length} booth${boothUpdates.length === 1 ? "" : "s"} updated`);
+    if (boothDeleteIds.length) parts.push(`${boothDeleteIds.length} booth${boothDeleteIds.length === 1 ? "" : "s"} removed`);
+    if (sectionCreates.length) parts.push(`${sectionCreates.length} new section${sectionCreates.length === 1 ? "" : "s"}`);
+    if (sectionUpdates.length) parts.push(`${sectionUpdates.length} section${sectionUpdates.length === 1 ? "" : "s"} updated`);
+    if (sectionDeleteIds.length) parts.push(`${sectionDeleteIds.length} section${sectionDeleteIds.length === 1 ? "" : "s"} removed`);
 
     const ok = await confirm({
       title: "Save changes to this floor map?",
@@ -580,9 +815,16 @@ export default function EventMapEditorPage() {
     setSavingChanges(true);
     setSaveError(null);
 
-    const [createResults, updateResults, deleteResults] = await Promise.all([
+    const [
+      boothCreateResults,
+      boothUpdateResults,
+      boothDeleteResults,
+      sectionCreateResults,
+      sectionUpdateResults,
+      sectionDeleteResults,
+    ] = await Promise.all([
       Promise.allSettled(
-        creates.map((b) =>
+        boothCreates.map((b) =>
           apiFetch<Booth>(`/events/${eventId}/booths/`, {
             method: "POST",
             accessToken: getAccessToken() ?? undefined,
@@ -591,7 +833,7 @@ export default function EventMapEditorPage() {
         ),
       ),
       Promise.allSettled(
-        updates.map((b) =>
+        boothUpdates.map((b) =>
           apiFetch<Booth>(`/events/booths/${b.id}/`, {
             method: "PATCH",
             accessToken: getAccessToken() ?? undefined,
@@ -600,8 +842,34 @@ export default function EventMapEditorPage() {
         ),
       ),
       Promise.allSettled(
-        deleteIds.map((id) =>
+        boothDeleteIds.map((id) =>
           apiFetch(`/events/booths/${id}/`, {
+            method: "DELETE",
+            accessToken: getAccessToken() ?? undefined,
+          }).then(() => id),
+        ),
+      ),
+      Promise.allSettled(
+        sectionCreates.map((s) =>
+          apiFetch<MapSection>(`/events/${eventId}/sections/`, {
+            method: "POST",
+            accessToken: getAccessToken() ?? undefined,
+            body: sectionToPayload(s),
+          }).then((created) => ({ tempId: s.id, created })),
+        ),
+      ),
+      Promise.allSettled(
+        sectionUpdates.map((s) =>
+          apiFetch<MapSection>(`/events/sections/${s.id}/`, {
+            method: "PATCH",
+            accessToken: getAccessToken() ?? undefined,
+            body: sectionToPayload(s),
+          }),
+        ),
+      ),
+      Promise.allSettled(
+        sectionDeleteIds.map((id) =>
+          apiFetch(`/events/sections/${id}/`, {
             method: "DELETE",
             accessToken: getAccessToken() ?? undefined,
           }).then(() => id),
@@ -609,68 +877,127 @@ export default function EventMapEditorPage() {
       ),
     ]);
 
-    const successfulDeleteIds = new Set(deleteResults.filter(isFulfilled).map((r) => r.value));
+    const successfulBoothDeleteIds = new Set(boothDeleteResults.filter(isFulfilled).map((r) => r.value));
 
     setBooths((current) => {
       let next = current;
-      for (const result of createResults) {
+      for (const result of boothCreateResults) {
         if (isFulfilled(result)) {
           const { tempId, created } = result.value;
           next = next.map((b) => (b.id === tempId ? created : b));
         }
       }
-      for (const result of updateResults) {
+      for (const result of boothUpdateResults) {
         if (isFulfilled(result)) {
           const updated = result.value;
           next = next.map((b) => (b.id === updated.id ? updated : b));
         }
       }
-      if (successfulDeleteIds.size > 0) {
-        next = next.filter((b) => !successfulDeleteIds.has(b.id));
+      if (successfulBoothDeleteIds.size > 0) {
+        next = next.filter((b) => !successfulBoothDeleteIds.has(b.id));
       }
       return next;
     });
 
     setPendingCreateIds((current) => {
       const next = new Set(current);
-      createResults.forEach((result, i) => {
-        if (isFulfilled(result)) next.delete(creates[i].id);
+      boothCreateResults.forEach((result, i) => {
+        if (isFulfilled(result)) next.delete(boothCreates[i].id);
       });
       return next;
     });
     setPendingUpdateIds((current) => {
       const next = new Set(current);
-      updateResults.forEach((result, i) => {
-        if (isFulfilled(result)) next.delete(updates[i].id);
+      boothUpdateResults.forEach((result, i) => {
+        if (isFulfilled(result)) next.delete(boothUpdates[i].id);
       });
       return next;
     });
     setPendingDeleteIds((current) => {
       const next = new Set(current);
-      successfulDeleteIds.forEach((id) => next.delete(id));
+      successfulBoothDeleteIds.forEach((id) => next.delete(id));
       return next;
     });
 
-    // Advance the "last known server state" baseline for everything that
-    // succeeded, so Discard (and the next Save's dirty-check) only cover
-    // what's still actually unsaved.
-    const successfulUpdatesById = new Map(
-      updateResults.filter(isFulfilled).map((r) => [r.value.id, r.value]),
+    const successfulBoothUpdatesById = new Map(
+      boothUpdateResults.filter(isFulfilled).map((r) => [r.value.id, r.value]),
     );
-    const nextSaved: Booth[] = [];
+    const nextSavedBooths: Booth[] = [];
     for (const booth of savedBoothsRef.current) {
-      if (successfulDeleteIds.has(booth.id)) continue;
-      nextSaved.push(successfulUpdatesById.get(booth.id) ?? booth);
+      if (successfulBoothDeleteIds.has(booth.id)) continue;
+      nextSavedBooths.push(successfulBoothUpdatesById.get(booth.id) ?? booth);
     }
-    for (const result of createResults) {
-      if (isFulfilled(result)) nextSaved.push(result.value.created);
+    for (const result of boothCreateResults) {
+      if (isFulfilled(result)) nextSavedBooths.push(result.value.created);
     }
-    savedBoothsRef.current = nextSaved;
+    savedBoothsRef.current = nextSavedBooths;
 
+    const successfulSectionDeleteIds = new Set(
+      sectionDeleteResults.filter(isFulfilled).map((r) => r.value),
+    );
+
+    setSections((current) => {
+      let next = current;
+      for (const result of sectionCreateResults) {
+        if (isFulfilled(result)) {
+          const { tempId, created } = result.value;
+          next = next.map((s) => (s.id === tempId ? created : s));
+        }
+      }
+      for (const result of sectionUpdateResults) {
+        if (isFulfilled(result)) {
+          const updated = result.value;
+          next = next.map((s) => (s.id === updated.id ? updated : s));
+        }
+      }
+      if (successfulSectionDeleteIds.size > 0) {
+        next = next.filter((s) => !successfulSectionDeleteIds.has(s.id));
+      }
+      return next;
+    });
+
+    setPendingSectionCreateIds((current) => {
+      const next = new Set(current);
+      sectionCreateResults.forEach((result, i) => {
+        if (isFulfilled(result)) next.delete(sectionCreates[i].id);
+      });
+      return next;
+    });
+    setPendingSectionUpdateIds((current) => {
+      const next = new Set(current);
+      sectionUpdateResults.forEach((result, i) => {
+        if (isFulfilled(result)) next.delete(sectionUpdates[i].id);
+      });
+      return next;
+    });
+    setPendingSectionDeleteIds((current) => {
+      const next = new Set(current);
+      successfulSectionDeleteIds.forEach((id) => next.delete(id));
+      return next;
+    });
+
+    const successfulSectionUpdatesById = new Map(
+      sectionUpdateResults.filter(isFulfilled).map((r) => [r.value.id, r.value]),
+    );
+    const nextSavedSections: MapSection[] = [];
+    for (const section of savedSectionsRef.current) {
+      if (successfulSectionDeleteIds.has(section.id)) continue;
+      nextSavedSections.push(successfulSectionUpdatesById.get(section.id) ?? section);
+    }
+    for (const result of sectionCreateResults) {
+      if (isFulfilled(result)) nextSavedSections.push(result.value.created);
+    }
+    savedSectionsRef.current = nextSavedSections;
+
+    const countRejected = (results: PromiseSettledResult<unknown>[]) =>
+      results.filter((r) => !isFulfilled(r)).length;
     const failures =
-      createResults.filter((r) => !isFulfilled(r)).length +
-      updateResults.filter((r) => !isFulfilled(r)).length +
-      deleteResults.filter((r) => !isFulfilled(r)).length;
+      countRejected(boothCreateResults) +
+      countRejected(boothUpdateResults) +
+      countRejected(boothDeleteResults) +
+      countRejected(sectionCreateResults) +
+      countRejected(sectionUpdateResults) +
+      countRejected(sectionDeleteResults);
 
     setSavingChanges(false);
     setSaveError(
@@ -682,7 +1009,7 @@ export default function EventMapEditorPage() {
     if (isDirty) {
       const ok = await confirm({
         title: "Discard unsaved changes?",
-        message: "You have booth changes that haven't been saved yet.",
+        message: "You have booth/section changes that haven't been saved yet.",
         confirmLabel: "Discard and leave",
         tone: "danger",
       });
@@ -708,7 +1035,8 @@ export default function EventMapEditorPage() {
 
         <h1 className="text-2xl font-semibold">Floor Map — {eventName}</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Upload a map image, then click and drag on it to place booth markers.
+          Click to drop a standard-size booth, drag to draw a custom size, or switch modes to mark
+          category sections.
         </p>
 
         {pageError && (
@@ -807,10 +1135,59 @@ export default function EventMapEditorPage() {
         )}
 
         {displayImageUrl && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+            <button
+              type="button"
+              onClick={() => setDrawMode("booth")}
+              className={`rounded-md border px-3 py-1.5 font-medium ${
+                drawMode === "booth"
+                  ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
+                  : "border-gray-300 dark:border-gray-700"
+              }`}
+            >
+              Place booths
+            </button>
+            <button
+              type="button"
+              onClick={() => setDrawMode("section")}
+              className={`rounded-md border px-3 py-1.5 font-medium ${
+                drawMode === "section"
+                  ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
+                  : "border-gray-300 dark:border-gray-700"
+              }`}
+            >
+              Mark category sections
+            </button>
+
+            {drawMode === "booth" && (
+              <div className="ml-2 flex items-center gap-1.5 border-l border-gray-300 pl-3 dark:border-gray-700">
+                <span className="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                  Click size
+                </span>
+                {(Object.keys(BOOTH_SIZE_PRESETS) as BoothSizeKey[]).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setBoothSizePreset(key)}
+                    className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
+                      boothSizePreset === key
+                        ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
+                        : "border-gray-300 dark:border-gray-700"
+                    }`}
+                  >
+                    {BOOTH_SIZE_PRESETS[key].label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {displayImageUrl && (
           <div
             ref={containerRef}
             onMouseDown={onContainerMouseDown}
-            className="relative mt-6 w-full select-none overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800"
+            className="relative mt-4 w-full select-none overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -820,15 +1197,60 @@ export default function EventMapEditorPage() {
               className="block w-full"
             />
 
+            {sections.map((section) => {
+              const rect =
+                liveRect && liveRect.target.kind === "section" && liveRect.target.id === section.id
+                  ? liveRect.rect
+                  : rectFrom(section);
+              const isPending =
+                pendingSectionCreateIds.has(section.id) || pendingSectionUpdateIds.has(section.id);
+              const categoryLabel =
+                CATEGORY_LABELS[section.category as VendorCategory] ?? section.category;
+              const styles =
+                CATEGORY_STYLES[section.category as VendorCategory] ?? "bg-gray-500/10 text-gray-600";
+              return (
+                <div
+                  key={`section-${section.id}`}
+                  onMouseDown={(e) =>
+                    startDrag(e, { kind: "section", id: section.id }, "move", rectFrom(section))
+                  }
+                  title={`${categoryLabel} section${isPending ? " (unsaved)" : ""}`}
+                  className={`absolute flex cursor-move items-start justify-start border-2 border-current p-1 ${styles} ${
+                    isPending ? "border-dashed" : ""
+                  }`}
+                  style={{
+                    left: `${rect.x}%`,
+                    top: `${rect.y}%`,
+                    width: `${rect.w}%`,
+                    height: `${rect.h}%`,
+                  }}
+                >
+                  <span className="pointer-events-none rounded bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-black/50">
+                    {categoryLabel}
+                  </span>
+                  <div
+                    onMouseDown={(e) =>
+                      startDrag(e, { kind: "section", id: section.id }, "resize", rectFrom(section))
+                    }
+                    className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize rounded-sm border border-white bg-current"
+                  />
+                </div>
+              );
+            })}
+
             {booths.map((booth) => {
               const rect =
-                liveRect && liveRect.boothId === booth.id ? liveRect.rect : rectFromBooth(booth);
+                liveRect && liveRect.target.kind === "booth" && liveRect.target.id === booth.id
+                  ? liveRect.rect
+                  : rectFrom(booth);
               const label = booth.vendor_detail?.label || booth.unlinked_vendor_name || "Unassigned";
               const isPending = pendingCreateIds.has(booth.id) || pendingUpdateIds.has(booth.id);
               return (
                 <div
                   key={booth.id}
-                  onMouseDown={(e) => startMove(e, booth)}
+                  onMouseDown={(e) =>
+                    startDrag(e, { kind: "booth", id: booth.id }, "move", rectFrom(booth))
+                  }
                   title={`Booth ${booth.booth_number} — ${label}${isPending ? " (unsaved)" : ""}`}
                   className={`absolute cursor-move rounded border-2 bg-brand-blue/20 hover:bg-brand-blue/30 ${
                     isPending ? "border-dashed border-brand-blue" : "border-brand-blue"
@@ -844,7 +1266,9 @@ export default function EventMapEditorPage() {
                     {booth.booth_number}
                   </span>
                   <div
-                    onMouseDown={(e) => startResize(e, booth)}
+                    onMouseDown={(e) =>
+                      startDrag(e, { kind: "booth", id: booth.id }, "resize", rectFrom(booth))
+                    }
                     className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize rounded-sm border border-white bg-brand-blue"
                   />
                 </div>
@@ -868,8 +1292,9 @@ export default function EventMapEditorPage() {
         {displayImageUrl && (
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {booths.length} booth{booths.length === 1 ? "" : "s"} placed. Drag a marker to move
-              it, drag its corner handle to resize, or click it to edit.
+              {booths.length} booth{booths.length === 1 ? "" : "s"} placed, {sections.length}{" "}
+              category section{sections.length === 1 ? "" : "s"} marked. Drag a marker to move it,
+              drag its corner handle to resize, or click it to edit.
             </p>
             {isDirty && (
               <div className="flex items-center gap-2">
@@ -925,6 +1350,28 @@ export default function EventMapEditorPage() {
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
                   placeholder="e.g. 331"
                 />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                  Size
+                </label>
+                <div className="flex gap-2 text-sm">
+                  {(Object.keys(BOOTH_SIZE_PRESETS) as BoothSizeKey[]).map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => applyBoothSizePreset(key)}
+                      className={`flex-1 rounded-md border px-3 py-1.5 font-medium ${
+                        isBoothSizePresetActive(key)
+                          ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
+                          : "border-gray-300 dark:border-gray-700"
+                      }`}
+                    >
+                      {BOOTH_SIZE_PRESETS[key].label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="flex gap-2 text-sm">
@@ -1059,6 +1506,74 @@ export default function EventMapEditorPage() {
                   <button
                     type="button"
                     onClick={closeForm}
+                    className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingSection !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={closeSectionForm}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold">
+              {editingSection === "new" ? "New category section" : "Edit category section"}
+            </h2>
+
+            <form onSubmit={handleSectionFormSubmit} className="mt-4 space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                  Category
+                </label>
+                <select
+                  value={sectionCategory}
+                  onChange={(e) => setSectionCategory(e.target.value as VendorCategory)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                >
+                  {CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {CATEGORY_LABELS[cat]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {sectionFormError && (
+                <p className="text-sm text-red-600 dark:text-red-400">{sectionFormError}</p>
+              )}
+
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  {editingSection !== "new" && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteSection}
+                      className="rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={closeSectionForm}
                     className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
                   >
                     Cancel

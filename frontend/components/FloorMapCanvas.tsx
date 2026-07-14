@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import type { EventMap, PublicBooth } from "@/lib/floorMap";
 import { percent, resolveMapImage } from "@/lib/floorMap";
-import { CATEGORY_LABELS, type VendorCategory } from "@/lib/mockData";
+import { CATEGORY_LABELS, CATEGORY_STYLES, type VendorCategory } from "@/lib/mockData";
 
 /**
  * Renders a floor map's image plus its booth markers — hover a booth
@@ -26,6 +26,25 @@ export function FloorMapCanvas({ map }: { map: EventMap }) {
       <div className="relative w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={displayImageUrl} alt="Event floor map" className="block w-full" />
+
+        {map.sections.map((section) => (
+          <div
+            key={section.id}
+            className={`pointer-events-none absolute flex items-start justify-start p-1 ${
+              CATEGORY_STYLES[section.category as VendorCategory] ?? "bg-gray-500/10 text-gray-600"
+            }`}
+            style={{
+              left: `${percent(section.position_x)}%`,
+              top: `${percent(section.position_y)}%`,
+              width: `${percent(section.width)}%`,
+              height: `${percent(section.height)}%`,
+            }}
+          >
+            <span className="rounded bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-black/50">
+              {CATEGORY_LABELS[section.category as VendorCategory] ?? section.category}
+            </span>
+          </div>
+        ))}
 
         {map.booths.map((booth) => (
           <button
