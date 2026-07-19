@@ -21,25 +21,26 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # User-uploaded media (venue floor-plan images) via Supabase Storage, which
 # speaks the S3 API — base.py's local-disk FileSystemStorage only works on
-# whatever machine is actually running the server, so production needs a
-# real shared store instead. No defaults on any of these: a production
-# deploy missing one of them should fail loudly at startup, not silently
-# serve/save nothing (see config/urls.py's `if settings.DEBUG` media route,
-# which correctly never runs here since DEBUG is False).
-SUPABASE_URL = env("SUPABASE_URL")  # e.g. https://xxxxxxxx.supabase.co
-AWS_STORAGE_BUCKET_NAME = env("SUPABASE_STORAGE_BUCKET")
-AWS_S3_ENDPOINT_URL = f"{SUPABASE_URL}/storage/v1/s3"
-AWS_ACCESS_KEY_ID = env("SUPABASE_S3_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = env("SUPABASE_S3_SECRET_ACCESS_KEY")
-AWS_S3_REGION_NAME = env("SUPABASE_S3_REGION", default="us-east-1")
-# Supabase Storage manages read/write access via its own bucket policies,
-# not per-object S3 ACLs, and the bucket is public (floor-plan images have
-# no reason to be gated) so served URLs don't need query-string signing.
-AWS_DEFAULT_ACL = None
-AWS_QUERYSTRING_AUTH = False
-AWS_S3_FILE_OVERWRITE = False
-MEDIA_URL = f"{SUPABASE_URL}/storage/v1/object/public/{AWS_STORAGE_BUCKET_NAME}/"
+# whatever machine is actually running the server, so production eventually
+# needs a real shared store instead. Optional for now: until the Supabase
+# bucket + S3 keys are set up, SUPABASE_URL is left unset and this app runs
+# with base.py's local-disk storage (uploads won't survive a redeploy/restart
+# on Railway, but nothing else in this settings module depends on it).
+SUPABASE_URL = env("SUPABASE_URL", default="")  # e.g. https://xxxxxxxx.supabase.co
+if SUPABASE_URL:
+    AWS_STORAGE_BUCKET_NAME = env("SUPABASE_STORAGE_BUCKET")
+    AWS_S3_ENDPOINT_URL = f"{SUPABASE_URL}/storage/v1/s3"
+    AWS_ACCESS_KEY_ID = env("SUPABASE_S3_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY = env("SUPABASE_S3_SECRET_ACCESS_KEY")
+    AWS_S3_REGION_NAME = env("SUPABASE_S3_REGION", default="us-east-1")
+    # Supabase Storage manages read/write access via its own bucket policies,
+    # not per-object S3 ACLs, and the bucket is public (floor-plan images have
+    # no reason to be gated) so served URLs don't need query-string signing.
+    AWS_DEFAULT_ACL = None
+    AWS_QUERYSTRING_AUTH = False
+    AWS_S3_FILE_OVERWRITE = False
+    MEDIA_URL = f"{SUPABASE_URL}/storage/v1/object/public/{AWS_STORAGE_BUCKET_NAME}/"
 
-STORAGES["default"] = {  # noqa: F405 — STORAGES dict comes from base.py's `import *`
-    "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
-}
+    STORAGES["default"] = {  # noqa: F405 — STORAGES dict comes from base.py's `import *`
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+    }
