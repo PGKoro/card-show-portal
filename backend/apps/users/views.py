@@ -1,7 +1,8 @@
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.microsoft.views import MicrosoftGraphOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
-from dj_rest_auth.registration.views import SocialLoginView
+from dj_rest_auth.registration.views import RegisterView, SocialLoginView
+from dj_rest_auth.views import LoginView, PasswordResetView
 from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -200,6 +201,36 @@ class SetUserRoleView(APIView):
 
         user.save(update_fields=["role", "onboarding_completed", "vendor_status"])
         return Response(UserDetailsSerializer(user).data, status=status.HTTP_200_OK)
+
+
+class ThrottledLoginView(LoginView):
+    """
+    Same as dj-rest-auth's LoginView, just rate-limited — login is the
+    highest-value target for credential-stuffing/brute-force, and the
+    project-wide anon/user throttle rates (settings.REST_FRAMEWORK) are
+    deliberately loose enough not to interfere with normal public browsing,
+    so this needs its own tighter scope. See config/urls.py for where this
+    is swapped in ahead of dj_rest_auth.urls' own unthrottled route.
+
+    No throttle_classes override here — ScopedRateThrottle is picked up from
+    settings.REST_FRAMEWORK's DEFAULT_THROTTLE_CLASSES (it's a no-op on any
+    view that doesn't set throttle_scope), so local/test settings can still
+    disable throttling project-wide without these views ignoring it.
+    """
+
+    throttle_scope = "auth"
+
+
+class ThrottledRegisterView(RegisterView):
+    """Same reasoning as ThrottledLoginView — signup can otherwise be spammed."""
+
+    throttle_scope = "auth"
+
+
+class ThrottledPasswordResetView(PasswordResetView):
+    """Same reasoning as ThrottledLoginView — otherwise floods a user's inbox."""
+
+    throttle_scope = "auth"
 
 
 class GoogleLoginView(SocialLoginView):

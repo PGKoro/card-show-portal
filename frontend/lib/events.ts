@@ -1,6 +1,7 @@
 export type EventStatus = "upcoming" | "past";
 
 export type VendorDetail = { pk: number; label: string };
+export type VenueDetail = { pk: number; name: string };
 
 export type ShowEvent = {
   id: number;
@@ -16,9 +17,16 @@ export type ShowEvent = {
   estimated_cards: number;
   estimated_attendees: number;
   status: EventStatus;
+  map_venue: number | null;
+  map_venue_detail: VenueDetail | null;
   /** Doesn't say whether an image has actually been uploaded — that's
    *  only ever revealed through the gated /events/:id/map/ endpoint. */
   map_visible: boolean;
+  /** Separate from map_visible — controls vendor booth self-selection. */
+  map_visible_to_vendors: boolean;
+  /** Until this passes, a booth a vendor held at this venue's most recent
+   *  prior event is held exclusively for them. Null = no loyalty window. */
+  loyalty_priority_deadline: string | null;
 };
 
 const EVENT_IMAGES = ["/cardshow1.webp", "/cardshow2.avif", "/cardshow3.jpeg"];

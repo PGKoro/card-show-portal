@@ -36,7 +36,7 @@ export default function EventsPage() {
       <div className="mx-auto max-w-6xl">
         <h1 className="text-3xl font-bold tracking-tight">Browse Events</h1>
         <p className="mt-1 text-gray-500 dark:text-gray-400">
-          Card shows and conventions on the Showfloor network. Click an event for vendor counts,
+          Card shows and conventions on the Collectors Village network. Click an event for vendor counts,
           estimated cards on the floor, and attendee estimates.
         </p>
 

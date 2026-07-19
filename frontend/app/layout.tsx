@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Showfloor",
+  title: "Collectors Village",
   description: "Marketplace platform for card shows and dealers",
 };
 

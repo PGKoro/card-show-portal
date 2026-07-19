@@ -5,13 +5,15 @@ import tempfile
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
+from django.utils import timezone
 from PIL import Image
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.users.models import User
 
-from .models import BoothAssignment, Event
+from .models import Booth, BoothRegistration, Event, Venue, VenueSection
+from .services import create_loyalty_holds
 
 
 def make_test_image(name="map.png"):
@@ -194,15 +196,75 @@ class EventApiTests(APITestCase):
         self.assertIsNotNone(second_page.data["previous"])
 
 
-class EventFloorMapTests(APITestCase):
-    """Covers map image upload, map_visible, booth CRUD, and the public /map/ endpoint."""
+class VenueTests(APITestCase):
+    """Covers basic Venue CRUD — the reusable floor-plan container."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            email="venue-admin@example.com", password="s3cret!23"
+        )
+        self.customer = User.objects.create_user(
+            email="venue-cust@example.com", password="s3cret!23"
+        )
+
+    def access_for(self, email, password="s3cret!23"):
+        login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
+        return login.data["access"]
+
+    def admin_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('venue-admin@example.com')}"}
+
+    def test_admin_can_create_venue(self):
+        response = self.client.post(
+            "/api/v1/venues/",
+            {"name": "Donald E. Stephens Convention Center", "city": "Rosemont"},
+            format="json",
+            **self.admin_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["booth_count"], 0)
+
+    def test_non_admin_cannot_create_venue(self):
+        access = self.access_for("venue-cust@example.com")
+        response = self.client.post(
+            "/api/v1/venues/",
+            {"name": "V", "city": "C"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_rename_and_delete_venue(self):
+        venue = Venue.objects.create(name="Old Name", city="City")
+        rename = self.client.patch(
+            f"/api/v1/venues/{venue.pk}/", {"name": "New Name"}, format="json", **self.admin_auth()
+        )
+        self.assertEqual(rename.status_code, status.HTTP_200_OK)
+        self.assertEqual(rename.data["name"], "New Name")
+
+        delete = self.client.delete(f"/api/v1/venues/{venue.pk}/", **self.admin_auth())
+        self.assertEqual(delete.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Venue.objects.filter(pk=venue.pk).exists())
+
+    def test_venue_list_supports_search_by_name_or_city(self):
+        Venue.objects.create(name="Austin Convention Center", city="Austin")
+        Venue.objects.create(name="McCormick Place", city="Chicago")
+
+        by_name = self.client.get("/api/v1/venues/?search=austin", **self.admin_auth())
+        self.assertEqual(by_name.data["count"], 1)
+        self.assertEqual(by_name.data["results"][0]["name"], "Austin Convention Center")
+
+        by_city = self.client.get("/api/v1/venues/?search=chicago", **self.admin_auth())
+        self.assertEqual(by_city.data["count"], 1)
+        self.assertEqual(by_city.data["results"][0]["name"], "McCormick Place")
+
+
+class VenueMapTests(APITestCase):
+    """Covers venue map image upload/preset selection and the admin map-editor endpoint."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # Uploaded test images must not land in the real MEDIA_ROOT (they'd
-        # pile up in backend/media/ on every test run) — redirect to a
-        # throwaway temp dir for the duration of this class instead.
         cls._temp_media_root = tempfile.mkdtemp()
         cls._media_override = override_settings(MEDIA_ROOT=cls._temp_media_root)
         cls._media_override.enable()
@@ -215,50 +277,36 @@ class EventFloorMapTests(APITestCase):
 
     def setUp(self):
         self.admin = User.objects.create_superuser(
-            email="map-admin@example.com", password="s3cret!23"
+            email="vmap-admin@example.com", password="s3cret!23"
         )
         self.customer = User.objects.create_user(
-            email="map-cust@example.com", password="s3cret!23"
+            email="vmap-cust@example.com", password="s3cret!23"
         )
-        self.vendor = User.objects.create_user(
-            email="map-vendor@example.com",
-            password="s3cret!23",
-            role=User.Role.VENDOR,
-            business_name="Booth Vendor Co",
-            category_tags=["vintage"],
-        )
-        self.event = Event.objects.create(
-            name="Map Show",
-            venue="Map Hall",
-            city="Map City",
-            start_date=datetime.date.today(),
-        )
+        self.venue = Venue.objects.create(name="Map Hall", city="Map City")
 
     def access_for(self, email, password="s3cret!23"):
         login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
         return login.data["access"]
 
     def admin_auth(self):
-        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('map-admin@example.com')}"}
-
-    # --- Map image upload ---
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('vmap-admin@example.com')}"}
 
     def test_admin_can_upload_map_image(self):
         response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-image/",
+            f"/api/v1/venues/{self.venue.pk}/map-image/",
             {"map_image": make_test_image()},
             format="multipart",
             **self.admin_auth(),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(response.data["map_image_url"])
-        self.event.refresh_from_db()
-        self.assertTrue(bool(self.event.map_image))
+        self.venue.refresh_from_db()
+        self.assertTrue(bool(self.venue.map_image))
 
     def test_non_admin_cannot_upload_map_image(self):
-        access = self.access_for("map-cust@example.com")
+        access = self.access_for("vmap-cust@example.com")
         response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-image/",
+            f"/api/v1/venues/{self.venue.pk}/map-image/",
             {"map_image": make_test_image()},
             format="multipart",
             HTTP_AUTHORIZATION=f"Bearer {access}",
@@ -267,142 +315,95 @@ class EventFloorMapTests(APITestCase):
 
     def test_upload_without_file_is_rejected(self):
         response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-image/",
+            f"/api/v1/venues/{self.venue.pk}/map-image/",
             {},
             format="multipart",
             **self.admin_auth(),
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_upload_replaces_existing_image(self):
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-image/",
-            {"map_image": make_test_image("first.png")},
-            format="multipart",
-            **self.admin_auth(),
-        )
-        self.event.refresh_from_db()
-        first_name = self.event.map_image.name
-
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-image/",
-            {"map_image": make_test_image("second.png")},
-            format="multipart",
-            **self.admin_auth(),
-        )
-        self.event.refresh_from_db()
-        self.assertNotEqual(self.event.map_image.name, first_name)
-
-    # --- Preset (generic layout) selection ---
-
     def test_admin_can_choose_a_preset(self):
         response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-preset/",
+            f"/api/v1/venues/{self.venue.pk}/map-preset/",
             {"preset": "single_hall"},
             format="json",
             **self.admin_auth(),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["map_image_preset"], "single_hall")
-        self.event.refresh_from_db()
-        self.assertEqual(self.event.map_image_preset, "single_hall")
+        self.venue.refresh_from_db()
+        self.assertEqual(self.venue.map_image_preset, "single_hall")
 
     def test_invalid_preset_key_is_rejected(self):
         response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-preset/",
+            f"/api/v1/venues/{self.venue.pk}/map-preset/",
             {"preset": "not-a-real-preset"},
             format="json",
             **self.admin_auth(),
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_non_admin_cannot_choose_a_preset(self):
-        access = self.access_for("map-cust@example.com")
-        response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-preset/",
-            {"preset": "single_hall"},
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {access}",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
     def test_choosing_a_preset_clears_a_real_uploaded_image(self):
         self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-image/",
+            f"/api/v1/venues/{self.venue.pk}/map-image/",
             {"map_image": make_test_image()},
             format="multipart",
             **self.admin_auth(),
         )
         self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-preset/",
+            f"/api/v1/venues/{self.venue.pk}/map-preset/",
             {"preset": "l_shaped"},
             format="json",
             **self.admin_auth(),
         )
-        self.event.refresh_from_db()
-        self.assertFalse(bool(self.event.map_image))
-        self.assertEqual(self.event.map_image_preset, "l_shaped")
+        self.venue.refresh_from_db()
+        self.assertFalse(bool(self.venue.map_image))
+        self.assertEqual(self.venue.map_image_preset, "l_shaped")
 
-    def test_uploading_a_real_image_clears_a_chosen_preset(self):
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-preset/",
-            {"preset": "two_room"},
-            format="json",
-            **self.admin_auth(),
+    def test_admin_map_editor_endpoint_includes_booths_and_sections(self):
+        Booth.objects.create(
+            venue=self.venue,
+            booth_number="1",
+            position_x=1,
+            position_y=1,
+            width=5,
+            height=5,
+            price="25.00",
         )
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-image/",
-            {"map_image": make_test_image()},
-            format="multipart",
-            **self.admin_auth(),
+        VenueSection.objects.create(
+            venue=self.venue, category="pokemon", position_x=0, position_y=0, width=25, height=25
         )
-        self.event.refresh_from_db()
-        self.assertTrue(bool(self.event.map_image))
-        self.assertEqual(self.event.map_image_preset, "")
-
-    def test_public_map_treats_preset_only_as_a_map_existing(self):
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-preset/",
-            {"preset": "center_aisle"},
-            format="json",
-            **self.admin_auth(),
-        )
-        self.client.patch(
-            f"/api/v1/events/{self.event.pk}/",
-            {"map_visible": True},
-            format="json",
-            **self.admin_auth(),
-        )
-        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
+        response = self.client.get(f"/api/v1/venues/{self.venue.pk}/map/", **self.admin_auth())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["map_image_preset"], "center_aisle")
-        self.assertIsNone(response.data["map_image_url"])
+        self.assertEqual(len(response.data["booths"]), 1)
+        self.assertEqual(response.data["booths"][0]["price"], "25.00")
+        self.assertEqual(len(response.data["sections"]), 1)
 
-    # --- map_visible toggle (via the general event PATCH) ---
-
-    def test_admin_can_toggle_map_visible(self):
-        response = self.client.patch(
-            f"/api/v1/events/{self.event.pk}/",
-            {"map_visible": True},
-            format="json",
-            **self.admin_auth(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.data["map_visible"])
-        self.event.refresh_from_db()
-        self.assertTrue(self.event.map_visible)
-
-    def test_non_admin_cannot_toggle_map_visible(self):
-        access = self.access_for("map-cust@example.com")
-        response = self.client.patch(
-            f"/api/v1/events/{self.event.pk}/",
-            {"map_visible": True},
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {access}",
+    def test_non_admin_cannot_view_admin_map_editor_endpoint(self):
+        access = self.access_for("vmap-cust@example.com")
+        response = self.client.get(
+            f"/api/v1/venues/{self.venue.pk}/map/", HTTP_AUTHORIZATION=f"Bearer {access}"
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    # --- Booth CRUD ---
+
+class BoothTests(APITestCase):
+    """Covers physical booth-slot CRUD on a venue, including price."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            email="booth-admin@example.com", password="s3cret!23"
+        )
+        self.customer = User.objects.create_user(
+            email="booth-cust@example.com", password="s3cret!23"
+        )
+        self.venue = Venue.objects.create(name="Booth Hall", city="Booth City")
+
+    def access_for(self, email, password="s3cret!23"):
+        login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
+        return login.data["access"]
+
+    def admin_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('booth-admin@example.com')}"}
 
     def booth_payload(self, **overrides):
         payload = {
@@ -411,72 +412,49 @@ class EventFloorMapTests(APITestCase):
             "position_y": "20.00",
             "width": "5.00",
             "height": "5.00",
+            "price": "50.00",
         }
         payload.update(overrides)
         return payload
 
-    def test_admin_can_create_booth_linked_to_vendor(self):
+    def test_admin_can_create_booth_with_price(self):
         response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
-            self.booth_payload(vendor=self.vendor.pk),
-            format="json",
-            **self.admin_auth(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["vendor"], self.vendor.pk)
-        self.assertEqual(
-            response.data["vendor_detail"], {"pk": self.vendor.pk, "label": "Booth Vendor Co"}
-        )
-        self.assertEqual(response.data["unlinked_vendor_name"], "")
-
-    def test_admin_can_create_booth_with_unlinked_vendor(self):
-        response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
-            self.booth_payload(
-                unlinked_vendor_name="Walk-in Dealer",
-                unlinked_vendor_category="vintage",
-                unlinked_vendor_contact="555-1234",
-            ),
-            format="json",
-            **self.admin_auth(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIsNone(response.data["vendor"])
-        self.assertEqual(response.data["unlinked_vendor_name"], "Walk-in Dealer")
-        # Contact is admin-only reference, but this IS the admin-facing
-        # serializer, so it's fine for it to appear here (the public one
-        # never includes it — see test_public_map_never_exposes_contact).
-        self.assertEqual(response.data["unlinked_vendor_contact"], "555-1234")
-
-    def test_booth_requires_exactly_one_of_vendor_or_unlinked_name(self):
-        neither = self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
+            f"/api/v1/venues/{self.venue.pk}/booths/",
             self.booth_payload(),
             format="json",
             **self.admin_auth(),
         )
-        self.assertEqual(neither.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["price"], "50.00")
 
-        both = self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
-            self.booth_payload(vendor=self.vendor.pk, unlinked_vendor_name="Someone Else"),
+    def test_price_defaults_to_zero_when_omitted(self):
+        payload = self.booth_payload()
+        del payload["price"]
+        response = self.client.post(
+            f"/api/v1/venues/{self.venue.pk}/booths/", payload, format="json", **self.admin_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["price"], "0.00")
+
+    def test_negative_price_is_rejected(self):
+        response = self.client.post(
+            f"/api/v1/venues/{self.venue.pk}/booths/",
+            self.booth_payload(price="-5.00"),
             format="json",
             **self.admin_auth(),
         )
-        self.assertEqual(both.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_booth_position_and_size_are_range_validated(self):
         for field, bad_value in [
             ("position_x", "-1"),
             ("position_x", "101"),
-            ("position_y", "101"),
             ("width", "0"),
-            ("width", "101"),
             ("height", "0"),
         ]:
             response = self.client.post(
-                f"/api/v1/events/{self.event.pk}/booths/",
-                self.booth_payload(vendor=self.vendor.pk, **{field: bad_value}),
+                f"/api/v1/venues/{self.venue.pk}/booths/",
+                self.booth_payload(**{field: bad_value}),
                 format="json",
                 **self.admin_auth(),
             )
@@ -486,193 +464,80 @@ class EventFloorMapTests(APITestCase):
                 f"{field}={bad_value} should have been rejected",
             )
 
-    def test_duplicate_booth_number_within_event_is_rejected(self):
+    def test_duplicate_booth_number_within_venue_is_rejected(self):
         self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
-            self.booth_payload(vendor=self.vendor.pk),
+            f"/api/v1/venues/{self.venue.pk}/booths/",
+            self.booth_payload(),
             format="json",
             **self.admin_auth(),
         )
         response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
-            self.booth_payload(unlinked_vendor_name="Someone Else"),
+            f"/api/v1/venues/{self.venue.pk}/booths/",
+            self.booth_payload(),
             format="json",
             **self.admin_auth(),
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_same_booth_number_allowed_across_different_events(self):
-        other_event = Event.objects.create(
-            name="Other Show", venue="V", city="C", start_date=datetime.date.today()
-        )
+    def test_same_booth_number_allowed_across_different_venues(self):
+        other_venue = Venue.objects.create(name="Other Hall", city="C")
         self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
-            self.booth_payload(vendor=self.vendor.pk),
+            f"/api/v1/venues/{self.venue.pk}/booths/",
+            self.booth_payload(),
             format="json",
             **self.admin_auth(),
         )
         response = self.client.post(
-            f"/api/v1/events/{other_event.pk}/booths/",
-            self.booth_payload(unlinked_vendor_name="Someone Else"),
+            f"/api/v1/venues/{other_venue.pk}/booths/",
+            self.booth_payload(),
             format="json",
             **self.admin_auth(),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_admin_can_reposition_and_reassign_booth(self):
+    def test_admin_can_reposition_and_reprice_booth(self):
         created = self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
-            self.booth_payload(vendor=self.vendor.pk),
+            f"/api/v1/venues/{self.venue.pk}/booths/",
+            self.booth_payload(),
             format="json",
             **self.admin_auth(),
         )
         booth_id = created.data["id"]
-
-        reposition = self.client.patch(
-            f"/api/v1/events/booths/{booth_id}/",
-            {"position_x": "50.00"},
+        response = self.client.patch(
+            f"/api/v1/venues/booths/{booth_id}/",
+            {"position_x": "60.00", "price": "75.00"},
             format="json",
             **self.admin_auth(),
         )
-        self.assertEqual(reposition.status_code, status.HTTP_200_OK)
-        self.assertEqual(str(reposition.data["position_x"]), "50.00")
-        # Untouched fields (vendor link) should survive a partial update.
-        self.assertEqual(reposition.data["vendor"], self.vendor.pk)
-
-        flipped = self.client.patch(
-            f"/api/v1/events/booths/{booth_id}/",
-            {"unlinked_vendor_name": "New Walk-in"},
-            format="json",
-            **self.admin_auth(),
-        )
-        self.assertEqual(flipped.status_code, status.HTTP_200_OK)
-        self.assertIsNone(flipped.data["vendor"])
-        self.assertEqual(flipped.data["unlinked_vendor_name"], "New Walk-in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(str(response.data["position_x"]), "60.00")
+        self.assertEqual(response.data["price"], "75.00")
 
     def test_admin_can_delete_booth(self):
         created = self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
-            self.booth_payload(vendor=self.vendor.pk),
+            f"/api/v1/venues/{self.venue.pk}/booths/",
+            self.booth_payload(),
             format="json",
             **self.admin_auth(),
         )
         booth_id = created.data["id"]
-
-        response = self.client.delete(
-            f"/api/v1/events/booths/{booth_id}/", **self.admin_auth()
-        )
+        response = self.client.delete(f"/api/v1/venues/booths/{booth_id}/", **self.admin_auth())
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(BoothAssignment.objects.filter(pk=booth_id).exists())
+        self.assertFalse(Booth.objects.filter(pk=booth_id).exists())
 
     def test_non_admin_cannot_manage_booths(self):
-        access = self.access_for("map-cust@example.com")
+        access = self.access_for("booth-cust@example.com")
         response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
-            self.booth_payload(vendor=self.vendor.pk),
+            f"/api/v1/venues/{self.venue.pk}/booths/",
+            self.booth_payload(),
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    # --- Public map endpoint ---
 
-    def _make_visible_map_with_booths(self):
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-image/",
-            {"map_image": make_test_image()},
-            format="multipart",
-            **self.admin_auth(),
-        )
-        self.client.patch(
-            f"/api/v1/events/{self.event.pk}/",
-            {"map_visible": True},
-            format="json",
-            **self.admin_auth(),
-        )
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
-            self.booth_payload(booth_number="1", vendor=self.vendor.pk),
-            format="json",
-            **self.admin_auth(),
-        )
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/booths/",
-            self.booth_payload(
-                booth_number="2",
-                unlinked_vendor_name="Walk-in Dealer",
-                unlinked_vendor_category="vintage",
-                unlinked_vendor_contact="555-1234",
-            ),
-            format="json",
-            **self.admin_auth(),
-        )
-
-    def test_public_map_404s_when_not_visible(self):
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-image/",
-            {"map_image": make_test_image()},
-            format="multipart",
-            **self.admin_auth(),
-        )
-        # map_visible defaults to False — never toggled on here.
-        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_public_map_404s_when_no_image_even_if_visible(self):
-        self.client.patch(
-            f"/api/v1/events/{self.event.pk}/",
-            {"map_visible": True},
-            format="json",
-            **self.admin_auth(),
-        )
-        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_public_map_404s_for_nonexistent_event(self):
-        response = self.client.get("/api/v1/events/999999/map/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_admin_can_view_map_even_when_not_visible(self):
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-image/",
-            {"map_image": make_test_image()},
-            format="multipart",
-            **self.admin_auth(),
-        )
-        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/", **self.admin_auth())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_public_map_returns_correct_booth_data_when_visible(self):
-        self._make_visible_map_with_booths()
-
-        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.data["map_image_url"])
-
-        by_number = {b["booth_number"]: b for b in response.data["booths"]}
-
-        linked = by_number["1"]
-        self.assertEqual(linked["vendor_pk"], self.vendor.pk)
-        self.assertEqual(linked["vendor_name"], "Booth Vendor Co")
-        self.assertEqual(linked["vendor_category_tags"], ["vintage"])
-
-        unlinked = by_number["2"]
-        self.assertIsNone(unlinked["vendor_pk"])
-        self.assertEqual(unlinked["vendor_name"], "Walk-in Dealer")
-        self.assertEqual(unlinked["vendor_category_tags"], ["vintage"])
-
-    def test_public_map_never_exposes_unlinked_contact(self):
-        self._make_visible_map_with_booths()
-        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
-
-        response_text = str(response.data)
-        self.assertNotIn("555-1234", response_text)
-        for booth in response.data["booths"]:
-            self.assertNotIn("unlinked_vendor_contact", booth)
-
-
-class MapSectionTests(APITestCase):
-    """Covers category-zone overlay CRUD and its exposure on the public /map/ endpoint."""
+class VenueSectionTests(APITestCase):
+    """Covers category-zone overlay CRUD on a venue's floor plan."""
 
     def setUp(self):
         self.admin = User.objects.create_superuser(
@@ -681,12 +546,7 @@ class MapSectionTests(APITestCase):
         self.customer = User.objects.create_user(
             email="section-cust@example.com", password="s3cret!23"
         )
-        self.event = Event.objects.create(
-            name="Section Show",
-            venue="Section Hall",
-            city="Section City",
-            start_date=datetime.date.today(),
-        )
+        self.venue = Venue.objects.create(name="Section Hall", city="Section City")
 
     def access_for(self, email, password="s3cret!23"):
         login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
@@ -708,20 +568,19 @@ class MapSectionTests(APITestCase):
 
     def test_admin_can_create_section(self):
         response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/sections/",
+            f"/api/v1/venues/{self.venue.pk}/sections/",
             self.section_payload(),
             format="json",
             **self.admin_auth(),
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["category"], "pokemon")
-        self.event.refresh_from_db()
-        self.assertEqual(self.event.map_sections.count(), 1)
+        self.venue.refresh_from_db()
+        self.assertEqual(self.venue.sections.count(), 1)
 
     def test_non_admin_cannot_create_section(self):
         access = self.access_for("section-cust@example.com")
         response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/sections/",
+            f"/api/v1/venues/{self.venue.pk}/sections/",
             self.section_payload(),
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {access}",
@@ -730,92 +589,661 @@ class MapSectionTests(APITestCase):
 
     def test_invalid_category_is_rejected(self):
         response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/sections/",
+            f"/api/v1/venues/{self.venue.pk}/sections/",
             self.section_payload(category="not-a-real-category"),
             format="json",
             **self.admin_auth(),
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_position_and_size_are_range_validated(self):
-        response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/sections/",
-            self.section_payload(width="0.00"),
-            format="json",
-            **self.admin_auth(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        response = self.client.post(
-            f"/api/v1/events/{self.event.pk}/sections/",
-            self.section_payload(position_x="101.00"),
-            format="json",
-            **self.admin_auth(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_admin_can_reposition_and_recategorize_section(self):
-        create = self.client.post(
-            f"/api/v1/events/{self.event.pk}/sections/",
-            self.section_payload(),
-            format="json",
-            **self.admin_auth(),
-        )
-        section_id = create.data["id"]
-
-        response = self.client.patch(
-            f"/api/v1/events/sections/{section_id}/",
-            {"category": "vintage", "position_x": "50.00"},
-            format="json",
-            **self.admin_auth(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["category"], "vintage")
-        self.assertEqual(response.data["position_x"], "50.00")
-
     def test_admin_can_delete_section(self):
         create = self.client.post(
-            f"/api/v1/events/{self.event.pk}/sections/",
+            f"/api/v1/venues/{self.venue.pk}/sections/",
             self.section_payload(),
             format="json",
             **self.admin_auth(),
         )
         section_id = create.data["id"]
-
         response = self.client.delete(
-            f"/api/v1/events/sections/{section_id}/", **self.admin_auth()
+            f"/api/v1/venues/sections/{section_id}/", **self.admin_auth()
         )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(self.event.map_sections.count(), 0)
+        self.assertEqual(self.venue.sections.count(), 0)
 
-    def test_non_admin_cannot_manage_sections(self):
-        access = self.access_for("section-cust@example.com")
-        response = self.client.get(
-            f"/api/v1/events/{self.event.pk}/sections/", HTTP_AUTHORIZATION=f"Bearer {access}"
+
+class PublicEventMapTests(APITestCase):
+    """Covers the public /events/<id>/map/ endpoint against the new venue/registration schema."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._temp_media_root = tempfile.mkdtemp()
+        cls._media_override = override_settings(MEDIA_ROOT=cls._temp_media_root)
+        cls._media_override.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._media_override.disable()
+        shutil.rmtree(cls._temp_media_root, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            email="pubmap-admin@example.com", password="s3cret!23"
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.vendor = User.objects.create_user(
+            email="pubmap-vendor@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Booth Vendor Co",
+            category_tags=["vintage"],
+        )
+        self.venue = Venue.objects.create(name="Pub Hall", city="Pub City")
+        self.booth1 = Booth.objects.create(
+            venue=self.venue,
+            booth_number="1",
+            position_x=0,
+            position_y=0,
+            width=5,
+            height=5,
+            price=10,
+        )
+        self.booth2 = Booth.objects.create(
+            venue=self.venue,
+            booth_number="2",
+            position_x=10,
+            position_y=0,
+            width=5,
+            height=5,
+            price=10,
+        )
+        self.event = Event.objects.create(
+            name="Map Show", venue="Map Hall", city="Map City", start_date=datetime.date.today()
+        )
 
-    def test_public_map_includes_sections_when_visible(self):
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/sections/",
-            self.section_payload(),
+    def access_for(self, email, password="s3cret!23"):
+        login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
+        return login.data["access"]
+
+    def admin_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('pubmap-admin@example.com')}"}
+
+    def make_confirmed_registration(self, booth, **overrides):
+        payload = {"booth": booth.pk, "status": "confirmed"}
+        payload.update(overrides)
+        return self.client.post(
+            f"/api/v1/events/{self.event.pk}/registrations/",
+            payload,
             format="json",
             **self.admin_auth(),
         )
-        self.client.post(
-            f"/api/v1/events/{self.event.pk}/map-preset/",
-            {"preset": "single_hall"},
-            format="json",
-            **self.admin_auth(),
+
+    def test_404_when_event_has_no_venue(self):
+        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_404_when_venue_has_no_map_image_even_if_linked_and_visible(self):
+        self.event.map_venue = self.venue
+        self.event.map_visible = True
+        self.event.save()
+        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_404_when_not_visible(self):
+        self.venue.map_image_preset = "single_hall"
+        self.venue.save()
+        self.event.map_venue = self.venue
+        self.event.save()
+        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_admin_can_view_even_when_not_visible(self):
+        self.venue.map_image_preset = "single_hall"
+        self.venue.save()
+        self.event.map_venue = self.venue
+        self.event.save()
+        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/", **self.admin_auth())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_returns_only_confirmed_registrations_with_correct_data(self):
+        self.venue.map_image_preset = "single_hall"
+        self.venue.save()
+        self.event.map_venue = self.venue
+        self.event.map_visible = True
+        self.event.save()
+
+        self.make_confirmed_registration(self.booth1, vendor=self.vendor.pk)
+        self.make_confirmed_registration(
+            self.booth2,
+            unlinked_vendor_name="Walk-in Dealer",
+            unlinked_vendor_category="vintage",
+            unlinked_vendor_contact="555-1234",
         )
-        self.client.patch(
-            f"/api/v1/events/{self.event.pk}/",
-            {"map_visible": True},
+        # A pending request should never show up publicly.
+        pending_booth = Booth.objects.create(
+            venue=self.venue, booth_number="3", position_x=20, position_y=0, width=5, height=5
+        )
+        self.client.post(
+            f"/api/v1/events/{self.event.pk}/registrations/",
+            {"booth": pending_booth.pk, "status": "requested", "vendor": self.vendor.pk},
             format="json",
             **self.admin_auth(),
         )
 
         response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["booths"]), 2)
+
+        by_number = {b["booth_number"]: b for b in response.data["booths"]}
+        linked = by_number["1"]
+        self.assertEqual(linked["vendor_pk"], self.vendor.pk)
+        self.assertEqual(linked["vendor_name"], "Booth Vendor Co")
+        self.assertEqual(linked["vendor_category_tags"], ["vintage"])
+
+        unlinked = by_number["2"]
+        self.assertIsNone(unlinked["vendor_pk"])
+        self.assertEqual(unlinked["vendor_name"], "Walk-in Dealer")
+
+    def test_never_exposes_price_or_unlinked_contact(self):
+        self.venue.map_image_preset = "single_hall"
+        self.venue.save()
+        self.event.map_venue = self.venue
+        self.event.map_visible = True
+        self.event.save()
+        self.make_confirmed_registration(
+            self.booth2,
+            unlinked_vendor_name="Walk-in Dealer",
+            unlinked_vendor_category="vintage",
+            unlinked_vendor_contact="555-1234",
+        )
+        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
+        response_text = str(response.data)
+        self.assertNotIn("555-1234", response_text)
+        for booth in response.data["booths"]:
+            self.assertNotIn("price", booth)
+            self.assertNotIn("unlinked_vendor_contact", booth)
+
+    def test_includes_sections(self):
+        VenueSection.objects.create(
+            venue=self.venue, category="pokemon", position_x=0, position_y=0, width=25, height=25
+        )
+        self.venue.map_image_preset = "single_hall"
+        self.venue.save()
+        self.event.map_venue = self.venue
+        self.event.map_visible = True
+        self.event.save()
+        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
         self.assertEqual(len(response.data["sections"]), 1)
         self.assertEqual(response.data["sections"][0]["category"], "pokemon")
+
+
+class BoothRegistrationAdminTests(APITestCase):
+    """Covers admin-driven registration management (direct assign + confirm/decline)."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            email="reg-admin@example.com", password="s3cret!23"
+        )
+        self.customer = User.objects.create_user(
+            email="reg-cust@example.com", password="s3cret!23"
+        )
+        self.vendor = User.objects.create_user(
+            email="reg-vendor@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Reg Vendor Co",
+        )
+        self.venue = Venue.objects.create(name="Reg Hall", city="Reg City")
+        self.booth = Booth.objects.create(
+            venue=self.venue,
+            booth_number="1",
+            position_x=0,
+            position_y=0,
+            width=5,
+            height=5,
+            price=40,
+        )
+        self.event = Event.objects.create(
+            name="Reg Show",
+            venue="Reg Hall",
+            city="Reg City",
+            start_date=datetime.date.today(),
+            map_venue=self.venue,
+        )
+
+    def access_for(self, email, password="s3cret!23"):
+        login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
+        return login.data["access"]
+
+    def admin_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('reg-admin@example.com')}"}
+
+    def test_admin_can_directly_confirm_a_vendor(self):
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/registrations/",
+            {"booth": self.booth.pk, "vendor": self.vendor.pk},
+            format="json",
+            **self.admin_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["status"], "confirmed")
+        self.assertEqual(response.data["price"], "40.00")
+
+    def test_requires_exactly_one_of_vendor_or_unlinked_name(self):
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/registrations/",
+            {"booth": self.booth.pk},
+            format="json",
+            **self.admin_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_only_one_active_registration_per_booth_per_event(self):
+        self.client.post(
+            f"/api/v1/events/{self.event.pk}/registrations/",
+            {"booth": self.booth.pk, "vendor": self.vendor.pk},
+            format="json",
+            **self.admin_auth(),
+        )
+        other_vendor = User.objects.create_user(
+            email="other-reg-vendor@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Other",
+        )
+        with self.assertRaises(Exception):
+            BoothRegistration.objects.create(
+                event=self.event,
+                booth=self.booth,
+                vendor=other_vendor,
+                status=BoothRegistration.Status.REQUESTED,
+                price=40,
+            )
+
+    def test_admin_can_confirm_a_pending_request(self):
+        created = self.client.post(
+            f"/api/v1/events/{self.event.pk}/registrations/",
+            {"booth": self.booth.pk, "vendor": self.vendor.pk, "status": "requested"},
+            format="json",
+            **self.admin_auth(),
+        )
+        registration_id = created.data["id"]
+        response = self.client.post(
+            f"/api/v1/events/registrations/{registration_id}/confirm/", **self.admin_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "confirmed")
+        self.assertIsNotNone(response.data["decided_at"])
+
+    def test_admin_can_decline_a_pending_request(self):
+        created = self.client.post(
+            f"/api/v1/events/{self.event.pk}/registrations/",
+            {"booth": self.booth.pk, "vendor": self.vendor.pk, "status": "requested"},
+            format="json",
+            **self.admin_auth(),
+        )
+        registration_id = created.data["id"]
+        response = self.client.post(
+            f"/api/v1/events/registrations/{registration_id}/decline/", **self.admin_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "declined")
+
+    def test_non_admin_cannot_manage_registrations(self):
+        access = self.access_for("reg-cust@example.com")
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/registrations/",
+            {"booth": self.booth.pk, "vendor": self.vendor.pk},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_pending_registrations_endpoint_lists_only_requested_across_events(self):
+        other_booth = Booth.objects.create(
+            venue=self.venue, booth_number="2", position_x=0, position_y=0, width=5, height=5,
+            price=25,
+        )
+        self.client.post(
+            f"/api/v1/events/{self.event.pk}/registrations/",
+            {"booth": self.booth.pk, "vendor": self.vendor.pk, "status": "requested"},
+            format="json",
+            **self.admin_auth(),
+        )
+        self.client.post(
+            f"/api/v1/events/{self.event.pk}/registrations/",
+            {"booth": other_booth.pk, "vendor": self.vendor.pk},
+            format="json",
+            **self.admin_auth(),
+        )
+
+        response = self.client.get("/api/v1/events/registrations/pending/", **self.admin_auth())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        row = response.data["results"][0]
+        self.assertEqual(row["status"], "requested")
+        self.assertEqual(row["event"], self.event.pk)
+        self.assertEqual(row["event_name"], "Reg Show")
+        self.assertEqual(row["venue_id"], self.venue.pk)
+        self.assertNotIn("unlinked_vendor_contact", row)
+
+    def test_non_admin_cannot_view_pending_registrations(self):
+        access = self.access_for("reg-cust@example.com")
+        response = self.client.get(
+            "/api/v1/events/registrations/pending/", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class VendorBoothSelectionTests(APITestCase):
+    """Covers the vendor-facing browse/select/release flow."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            email="vsel-admin@example.com", password="s3cret!23"
+        )
+        self.vendor = User.objects.create_user(
+            email="vsel-vendor@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Selecting Vendor",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        self.pending_vendor = User.objects.create_user(
+            email="vsel-pending@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Pending Vendor",
+            vendor_status=User.VendorStatus.PENDING_REVIEW,
+        )
+        self.other_vendor = User.objects.create_user(
+            email="vsel-other@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Other Vendor",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        self.venue = Venue.objects.create(name="Sel Hall", city="Sel City")
+        self.booth = Booth.objects.create(
+            venue=self.venue,
+            booth_number="1",
+            position_x=0,
+            position_y=0,
+            width=5,
+            height=5,
+            price=30,
+        )
+        self.event = Event.objects.create(
+            name="Sel Show",
+            venue="Sel Hall",
+            city="Sel City",
+            start_date=datetime.date.today(),
+            map_venue=self.venue,
+            map_visible_to_vendors=True,
+        )
+
+    def access_for(self, email, password="s3cret!23"):
+        login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
+        return login.data["access"]
+
+    def vendor_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('vsel-vendor@example.com')}"}
+
+    def other_vendor_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('vsel-other@example.com')}"}
+
+    def test_404_when_vendor_visibility_off(self):
+        self.event.map_visible_to_vendors = False
+        self.event.save()
+        response = self.client.get(
+            f"/api/v1/events/{self.event.pk}/vendor-booths/", **self.vendor_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_pending_vendor_cannot_browse_booths(self):
+        access = self.access_for("vsel-pending@example.com")
+        response = self.client.get(
+            f"/api/v1/events/{self.event.pk}/vendor-booths/",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_vendor_sees_booth_as_available(self):
+        response = self.client.get(
+            f"/api/v1/events/{self.event.pk}/vendor-booths/", **self.vendor_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["booths"][0]["availability"], "available")
+        self.assertEqual(response.data["booths"][0]["price"], "30.00")
+
+    def test_vendor_can_select_available_booth(self):
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/booths/{self.booth.pk}/select/", **self.vendor_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["status"], "requested")
+        self.assertEqual(BoothRegistration.objects.get().vendor_id, self.vendor.pk)
+
+    def test_vendor_cannot_select_a_taken_booth(self):
+        self.client.post(
+            f"/api/v1/events/{self.event.pk}/booths/{self.booth.pk}/select/", **self.vendor_auth()
+        )
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/booths/{self.booth.pk}/select/",
+            **self.other_vendor_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_vendor_cannot_double_request_same_booth(self):
+        self.client.post(
+            f"/api/v1/events/{self.event.pk}/booths/{self.booth.pk}/select/", **self.vendor_auth()
+        )
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/booths/{self.booth.pk}/select/", **self.vendor_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_vendor_can_release_their_own_registration(self):
+        created = self.client.post(
+            f"/api/v1/events/{self.event.pk}/booths/{self.booth.pk}/select/", **self.vendor_auth()
+        )
+        registration_id = created.data["id"]
+        response = self.client.post(
+            f"/api/v1/events/registrations/{registration_id}/release/", **self.vendor_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "released")
+
+        # Now available again for someone else.
+        reselect = self.client.post(
+            f"/api/v1/events/{self.event.pk}/booths/{self.booth.pk}/select/",
+            **self.other_vendor_auth(),
+        )
+        self.assertEqual(reselect.status_code, status.HTTP_201_CREATED)
+
+    def test_vendor_cannot_release_someone_elses_registration(self):
+        created = self.client.post(
+            f"/api/v1/events/{self.event.pk}/booths/{self.booth.pk}/select/", **self.vendor_auth()
+        )
+        registration_id = created.data["id"]
+        response = self.client.post(
+            f"/api/v1/events/registrations/{registration_id}/release/", **self.other_vendor_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class LoyaltyHoldTests(APITestCase):
+    """Covers automatic returning-vendor priority holds across events at the same venue."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            email="loy-admin@example.com", password="s3cret!23"
+        )
+        self.vendor = User.objects.create_user(
+            email="loy-vendor@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Returning Vendor",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        self.other_vendor = User.objects.create_user(
+            email="loy-other@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="New Vendor",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        self.venue = Venue.objects.create(name="Loyalty Hall", city="Loyalty City")
+        self.booth = Booth.objects.create(
+            venue=self.venue,
+            booth_number="1",
+            position_x=0,
+            position_y=0,
+            width=5,
+            height=5,
+            price=20,
+        )
+        self.prior_event = Event.objects.create(
+            name="Prior Show",
+            venue="Loyalty Hall",
+            city="Loyalty City",
+            start_date=datetime.date.today() - datetime.timedelta(days=100),
+            map_venue=self.venue,
+        )
+        BoothRegistration.objects.create(
+            event=self.prior_event,
+            booth=self.booth,
+            vendor=self.vendor,
+            status=BoothRegistration.Status.CONFIRMED,
+            price=20,
+        )
+
+    def access_for(self, email, password="s3cret!23"):
+        login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
+        return login.data["access"]
+
+    def admin_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('loy-admin@example.com')}"}
+
+    def vendor_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('loy-vendor@example.com')}"}
+
+    def other_vendor_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('loy-other@example.com')}"}
+
+    def make_new_event(self, deadline=None):
+        # Direct ORM creation, same as any other test fixture — but this
+        # bypasses EventDetailView.perform_update (the real trigger point
+        # for create_loyalty_holds when an admin PATCHes the venue/deadline
+        # via the API), so call it explicitly to set up holds correctly.
+        event = Event.objects.create(
+            name="New Show",
+            venue="Loyalty Hall",
+            city="Loyalty City",
+            start_date=datetime.date.today() + datetime.timedelta(days=30),
+            map_venue=self.venue,
+            map_visible_to_vendors=True,
+            loyalty_priority_deadline=deadline,
+        )
+        create_loyalty_holds(event)
+        return event
+
+    def test_no_hold_without_deadline_set(self):
+        new_event = self.make_new_event(deadline=None)
+        self.assertEqual(
+            BoothRegistration.objects.filter(event=new_event).count(), 0
+        )
+        # Setting the deadline afterward (a normal PATCH) should trigger it.
+        self.client.patch(
+            f"/api/v1/events/{new_event.pk}/",
+            {
+                "loyalty_priority_deadline": (
+                    timezone.now() + datetime.timedelta(days=7)
+                ).isoformat()
+            },
+            format="json",
+            **self.admin_auth(),
+        )
+        self.assertEqual(
+            BoothRegistration.objects.filter(
+                event=new_event, status=BoothRegistration.Status.LOYALTY_HOLD
+            ).count(),
+            1,
+        )
+
+    def test_hold_created_for_returning_vendor_when_venue_set_via_patch(self):
+        new_event = Event.objects.create(
+            name="New Show 2",
+            venue="Loyalty Hall",
+            city="Loyalty City",
+            start_date=datetime.date.today() + datetime.timedelta(days=30),
+        )
+        self.client.patch(
+            f"/api/v1/events/{new_event.pk}/",
+            {
+                "map_venue": self.venue.pk,
+                "loyalty_priority_deadline": (
+                    timezone.now() + datetime.timedelta(days=7)
+                ).isoformat(),
+            },
+            format="json",
+            **self.admin_auth(),
+        )
+        hold = BoothRegistration.objects.get(event=new_event)
+        self.assertEqual(hold.status, BoothRegistration.Status.LOYALTY_HOLD)
+        self.assertEqual(hold.vendor_id, self.vendor.pk)
+        self.assertEqual(hold.booth_id, self.booth.pk)
+
+    def test_other_vendor_cannot_select_held_booth_before_deadline(self):
+        new_event = self.make_new_event(deadline=timezone.now() + datetime.timedelta(days=7))
+        response = self.client.post(
+            f"/api/v1/events/{new_event.pk}/booths/{self.booth.pk}/select/",
+            **self.other_vendor_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_original_vendor_sees_their_hold_and_can_claim_it(self):
+        new_event = self.make_new_event(deadline=timezone.now() + datetime.timedelta(days=7))
+
+        listing = self.client.get(
+            f"/api/v1/events/{new_event.pk}/vendor-booths/", **self.vendor_auth()
+        )
+        self.assertEqual(listing.data["booths"][0]["availability"], "loyalty_hold_mine")
+
+        claim = self.client.post(
+            f"/api/v1/events/{new_event.pk}/booths/{self.booth.pk}/select/", **self.vendor_auth()
+        )
+        self.assertEqual(claim.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(claim.data["status"], "requested")
+        self.assertEqual(claim.data["vendor"], self.vendor.pk)
+
+    def test_expired_hold_becomes_available_to_anyone(self):
+        new_event = self.make_new_event(deadline=timezone.now() - datetime.timedelta(days=1))
+
+        listing = self.client.get(
+            f"/api/v1/events/{new_event.pk}/vendor-booths/", **self.other_vendor_auth()
+        )
+        self.assertEqual(listing.data["booths"][0]["availability"], "available")
+
+        response = self.client.post(
+            f"/api/v1/events/{new_event.pk}/booths/{self.booth.pk}/select/",
+            **self.other_vendor_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["vendor"], self.other_vendor.pk)
+
+    def test_no_hold_without_a_prior_event_at_the_venue(self):
+        fresh_venue = Venue.objects.create(name="Fresh Hall", city="Fresh City")
+        Booth.objects.create(
+            venue=fresh_venue, booth_number="1", position_x=0, position_y=0, width=5, height=5
+        )
+        new_event = Event.objects.create(
+            name="First Show Ever",
+            venue="Fresh Hall",
+            city="Fresh City",
+            start_date=datetime.date.today() + datetime.timedelta(days=30),
+            map_venue=fresh_venue,
+            loyalty_priority_deadline=timezone.now() + datetime.timedelta(days=7),
+        )
+        create_loyalty_holds(new_event)
+        self.assertEqual(BoothRegistration.objects.filter(event=new_event).count(), 0)

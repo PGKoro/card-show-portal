@@ -7,11 +7,13 @@ import { useEffect, useState } from "react";
 
 import { FloorMapCanvas } from "@/components/FloorMapCanvas";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 import { formatEventDateRange, getEventImage, type ShowEvent } from "@/lib/events";
 import type { EventMap } from "@/lib/floorMap";
 
 export default function EventDetailPage() {
   const params = useParams<{ eventId: string }>();
+  const { user } = useAuth();
   const [event, setEvent] = useState<ShowEvent | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -74,6 +76,12 @@ export default function EventDetailPage() {
     },
   ];
 
+  const canSelectBooth =
+    event.status === "upcoming" &&
+    event.map_visible_to_vendors &&
+    user?.role === "vendor" &&
+    user?.vendor_status === "approved";
+
   return (
     <main className="flex-1 px-6 py-12">
       <div className="mx-auto max-w-4xl">
@@ -135,6 +143,23 @@ export default function EventDetailPage() {
             </div>
           ))}
         </div>
+
+        {canSelectBooth && (
+          <div className="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-brand-blue/30 bg-brand-blue/5 p-5">
+            <div>
+              <p className="font-semibold">Booths are open for this show</p>
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                Pick your spot before they fill up.
+              </p>
+            </div>
+            <Link
+              href={`/dashboard/vendor/booths/${event.id}`}
+              className="whitespace-nowrap rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy"
+            >
+              Select a Booth
+            </Link>
+          </div>
+        )}
 
         {map && (
           <div className="mt-8">

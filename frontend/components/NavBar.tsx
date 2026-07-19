@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { CardStackLogo } from "@/components/CardStackLogo";
 import { useAuth } from "@/lib/AuthContext";
 import { dashboardPathForRole } from "@/lib/auth";
 
@@ -32,8 +33,9 @@ export function NavBar() {
   return (
     <header className="border-b border-gray-200 bg-white">
       <nav className="mx-auto flex min-h-[69px] max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-2">
-        <Link href="/" className="text-lg font-bold tracking-tight text-brand-navy">
-          Showfloor
+        <Link href="/" className="flex items-center gap-2 text-lg font-bold tracking-tight text-brand-navy">
+          <CardStackLogo />
+          Collectors Village
         </Link>
 
         <div className="flex items-center gap-6 text-sm font-medium text-gray-600">

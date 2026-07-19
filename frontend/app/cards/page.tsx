@@ -6,7 +6,7 @@ export default function CardsPage() {
       <div className="mx-auto max-w-6xl">
         <h1 className="mb-2 text-3xl font-bold tracking-tight">Browse Cards</h1>
         <p className="mb-8 text-gray-600 dark:text-gray-300">
-          Search inventory across every vendor on Showfloor.
+          Search inventory across every vendor on Collectors Village.
         </p>
         <CardDirectory />
       </div>
