@@ -83,7 +83,7 @@ export default function CustomerOnboardingPage() {
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
       <div className="mb-8 flex flex-col items-center gap-2 text-center">
         <Link href="/" className="text-2xl font-bold tracking-tight text-brand-navy">
-          Showfloor
+          Collectors Village
         </Link>
         <div className="flex items-center gap-1.5 text-xs text-gray-500">
           <span>Powered by</span>

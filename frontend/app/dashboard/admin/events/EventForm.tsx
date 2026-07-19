@@ -2,9 +2,12 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 
-import { getApiErrorMessage, apiFetch } from "@/lib/api";
+import Link from "next/link";
+
+import { getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
-import type { VendorDetail } from "@/lib/events";
+import type { VendorDetail, VenueDetail } from "@/lib/events";
+import type { Venue } from "@/lib/floorMap";
 
 type VendorSearchResult = { pk: number; email: string; business_name: string };
 
@@ -18,6 +21,7 @@ export type EventFormPayload = {
   estimated_cards: number;
   estimated_attendees: number;
   vendors: number[];
+  map_venue: number | null;
 };
 
 export type EventFormInitialValues = {
@@ -30,6 +34,8 @@ export type EventFormInitialValues = {
   estimated_cards: number;
   estimated_attendees: number;
   vendors_detail: VendorDetail[];
+  map_venue: number | null;
+  map_venue_detail: VenueDetail | null;
 };
 
 export function EventForm({
@@ -56,11 +62,37 @@ export function EventForm({
   const [selectedVendors, setSelectedVendors] = useState<VendorDetail[]>(
     initialValues?.vendors_detail ?? [],
   );
+  const [selectedVenue, setSelectedVenue] = useState<VenueDetail | null>(
+    initialValues?.map_venue_detail ?? null,
+  );
+  const [venueSearch, setVenueSearch] = useState("");
+  const [venueResults, setVenueResults] = useState<Venue[]>([]);
 
   const [vendorSearch, setVendorSearch] = useState("");
   const [vendorResults, setVendorResults] = useState<VendorSearchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      if (cancelled) return;
+      if (!venueSearch) {
+        setVenueResults([]);
+        return;
+      }
+      apiFetch<PaginatedResponse<Venue>>(
+        `/venues/?search=${encodeURIComponent(venueSearch)}&page_size=10`,
+        { accessToken: getAccessToken() ?? undefined },
+      ).then((data) => {
+        if (!cancelled) setVenueResults(data.results);
+      });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [venueSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +142,7 @@ export function EventForm({
         estimated_cards: Number(estimatedCards) || 0,
         estimated_attendees: Number(estimatedAttendees) || 0,
         vendors: selectedVendors.map((v) => v.pk),
+        map_venue: selectedVenue?.pk ?? null,
       });
     } catch (err) {
       setError(getApiErrorMessage(err, "Could not save event. Please try again."));
@@ -135,7 +168,7 @@ export function EventForm({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor="venue" className="block text-sm font-medium">
-            Venue
+            Venue name
           </label>
           <input
             id="venue"
@@ -157,6 +190,65 @@ export function EventForm({
             className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
           />
         </div>
+      </div>
+
+      <div>
+        <span className="block text-sm font-medium">
+          Floor plan venue <span className="font-normal text-gray-400">(optional)</span>
+        </span>
+        {selectedVenue ? (
+          <div className="mt-1 flex items-center justify-between gap-3 rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700">
+            <span>{selectedVenue.name}</span>
+            <button
+              type="button"
+              onClick={() => setSelectedVenue(null)}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+            >
+              Change
+            </button>
+          </div>
+        ) : (
+          <>
+            <input
+              type="text"
+              value={venueSearch}
+              onChange={(e) => setVenueSearch(e.target.value)}
+              placeholder="Search venues by name or city..."
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+            />
+            {venueResults.length > 0 && (
+              <div className="mt-2 divide-y divide-gray-100 rounded-md border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
+                {venueResults.map((venue) => (
+                  <button
+                    type="button"
+                    key={venue.id}
+                    onClick={() => {
+                      setSelectedVenue({ pk: venue.id, name: venue.name });
+                      setVenueSearch("");
+                      setVenueResults([]);
+                    }}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-900"
+                  >
+                    <span>
+                      {venue.name}
+                      {venue.city ? ` — ${venue.city}` : ""}
+                    </span>
+                    <span className="text-xs text-brand-blue">Select</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <Link
+              href="/dashboard/admin/venues/new"
+              className="mt-2 inline-block text-xs font-medium text-brand-blue hover:underline"
+            >
+              + Add a new venue
+            </Link>
+          </>
+        )}
+        <p className="mt-1 text-xs text-gray-400">
+          Link a saved venue to reuse its floor plan and let vendors select booths for this event.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

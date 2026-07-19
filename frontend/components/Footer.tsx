@@ -8,7 +8,7 @@ export function Footer() {
       <div className="mx-auto max-w-6xl px-6 py-12">
         <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-2">
-            <p className="text-lg font-bold text-white">Showfloor</p>
+            <p className="text-lg font-bold text-white">Collectors Village</p>
             <p className="mt-2 max-w-sm text-sm text-gray-400">
               The marketplace for card shows and dealers &mdash; find vendors, browse
               inventory, and connect directly with the people running the show.
@@ -55,7 +55,7 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <a href="mailto:hello@showfloor.example.com" className="hover:text-white">
+                <a href="mailto:hello@collectorsvillage.example.com" className="hover:text-white">
                   Contact
                 </a>
               </li>
@@ -72,7 +72,7 @@ export function Footer() {
         </div>
 
         <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-gray-800 pt-6 text-xs text-gray-500">
-          <p>&copy; 2026 Showfloor. All rights reserved.</p>
+          <p>&copy; 2026 Collectors Village. All rights reserved.</p>
           <div className="flex items-center gap-2">
             <span>Powered by</span>
             {/* eslint-disable-next-line @next/next/no-img-element */}

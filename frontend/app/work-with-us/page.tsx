@@ -45,10 +45,10 @@ export default function WorkWithUsPage() {
         <p className="mt-10 text-sm text-gray-500 dark:text-gray-400">
           Don&apos;t see a fit but still want to reach out? Email us at{" "}
           <a
-            href="mailto:careers@showfloor.example.com"
+            href="mailto:careers@collectorsvillage.example.com"
             className="font-medium text-brand-blue hover:underline"
           >
-            careers@showfloor.example.com
+            careers@collectorsvillage.example.com
           </a>
           .
         </p>

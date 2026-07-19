@@ -182,6 +182,25 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
+    # Baseline abuse protection for every endpoint (loose enough not to
+    # interfere with normal public browsing of events/vendors/listings).
+    # Login/registration/password-reset get a much stricter "auth" scope
+    # instead — see ThrottledLoginView etc. in apps/users/views.py — since
+    # those are the actual credential-stuffing/spam targets. ScopedRateThrottle
+    # is a no-op on every other view (it only fires for views that set
+    # throttle_scope), so listing it globally here — rather than as a
+    # per-view throttle_classes override — means local/test settings can
+    # still disable all throttling in one place.
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/min",
+        "user": "300/min",
+        "auth": "10/min",
+    },
 }
 
 # dj-rest-auth: issue JWTs instead of session/token auth, since the frontend

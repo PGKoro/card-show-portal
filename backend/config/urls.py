@@ -17,6 +17,9 @@ from apps.users.views import (
     PublicVendorDetailView,
     RejectVendorView,
     SetUserRoleView,
+    ThrottledLoginView,
+    ThrottledPasswordResetView,
+    ThrottledRegisterView,
 )
 
 urlpatterns = [
@@ -25,6 +28,23 @@ urlpatterns = [
     path("api/v1/", include("apps.core.urls")),
     path("api/v1/listings/", include("apps.listings.urls")),
     path("api/v1/events/", include("apps.events.urls")),
+    path("api/v1/venues/", include("apps.events.venue_urls")),
+    # Rate-limited overrides for the three sensitive auth endpoints — placed
+    # ahead of the dj_rest_auth includes below so these match first (same
+    # path, first pattern wins). Everything else dj_rest_auth.urls handles
+    # (logout, token refresh/verify, password change, user details) doesn't
+    # need the stricter throttle, since it requires an existing valid session.
+    path("api/v1/auth/login/", ThrottledLoginView.as_view(), name="rest_login"),
+    path(
+        "api/v1/auth/password/reset/",
+        ThrottledPasswordResetView.as_view(),
+        name="rest_password_reset",
+    ),
+    path(
+        "api/v1/auth/registration/",
+        ThrottledRegisterView.as_view(),
+        name="rest_register",
+    ),
     # Email/password auth (login, logout, password reset) + registration,
     # both returning JWTs via dj-rest-auth.
     path("api/v1/auth/", include("dj_rest_auth.urls")),
