@@ -7,6 +7,13 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# NEXT_PUBLIC_* vars are inlined into the client bundle at build time, not
+# read at runtime — Railway (and Docker generally) only exposes a service's
+# env vars to a Dockerfile build if it's declared as an ARG here; without
+# this, `npm run build` silently falls back to lib/api.ts's localhost default
+# no matter what's set in Railway's Variables tab.
+ARG NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 RUN npm run build
 
 FROM node:20-alpine AS runner
