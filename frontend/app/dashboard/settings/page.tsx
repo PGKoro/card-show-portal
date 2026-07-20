@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { Spinner } from "@/components/Spinner";
 import { getApiErrorMessage, apiFetch } from "@/lib/api";
 import { useAuth, type CurrentUser } from "@/lib/AuthContext";
 import { dashboardPathForRole, getAccessToken } from "@/lib/auth";
@@ -91,11 +92,7 @@ export default function ProfileSettingsPage() {
     return (
       <main className="flex-1 px-6 py-12">
         <div className="mx-auto max-w-2xl">
-          <div
-            role="status"
-            aria-label="Loading"
-            className="h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-brand-blue dark:border-gray-700"
-          />
+          <Spinner />
         </div>
       </main>
     );

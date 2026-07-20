@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { Pagination } from "@/components/Pagination";
+import { Spinner } from "@/components/Spinner";
 import { ApiError, apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 import { formatEventDateRange, type ShowEvent } from "@/lib/events";
@@ -87,7 +88,9 @@ export default function AdminEventsPage() {
           className="mb-4 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
         />
 
-        {!loading && events.length === 0 ? (
+        {loading ? (
+          <Spinner />
+        ) : events.length === 0 ? (
           <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
             {search ? "No matching events." : "No events yet."}
           </p>

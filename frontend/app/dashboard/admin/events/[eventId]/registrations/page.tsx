@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { apiFetch, getApiErrorMessage, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 import { useCategories } from "@/lib/CategoriesContext";
@@ -242,7 +243,7 @@ export default function EventRegistrationsPage() {
     }
   }
 
-  if (loading) return null;
+  if (loading) return <AuthPageSpinner />;
 
   if (pageError && !event) {
     return (

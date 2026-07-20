@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { Spinner } from "@/components/Spinner";
 import { apiFetch, getApiErrorMessage, type PaginatedResponse } from "@/lib/api";
 import { useCategories } from "@/lib/CategoriesContext";
 import { getAccessToken } from "@/lib/auth";
@@ -143,7 +144,9 @@ export default function BoothRequestsPage() {
           </p>
         )}
 
-        {!loading && rows.length === 0 ? (
+        {loading ? (
+          <Spinner />
+        ) : rows.length === 0 ? (
           <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
             No pending booth requests right now.
           </p>

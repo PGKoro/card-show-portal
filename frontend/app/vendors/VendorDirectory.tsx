@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { SearchInput } from "@/components/SearchInput";
+import { Spinner } from "@/components/Spinner";
 import { VendorCard, type PublicVendor } from "@/components/VendorCard";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import { useCategories } from "@/lib/CategoriesContext";
@@ -77,7 +78,9 @@ export function VendorDirectory() {
         ))}
       </div>
 
-      {loading ? null : allVendors.length === 0 ? (
+      {loading ? (
+        <Spinner />
+      ) : allVendors.length === 0 ? (
         <p className="text-gray-500 dark:text-gray-400">No vendors listed yet.</p>
       ) : vendors.length === 0 ? (
         <p className="text-gray-500 dark:text-gray-400">No vendors match your search.</p>

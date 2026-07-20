@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 
 import { useConfirm } from "@/components/ConfirmDialogProvider";
+import { Spinner } from "@/components/Spinner";
 import { apiFetch, getApiErrorMessage } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 import { useCategories, type Category } from "@/lib/CategoriesContext";
@@ -250,7 +251,9 @@ export default function ManageCategoriesPage() {
           </p>
         )}
 
-        {!isLoading && displayCategories.length === 0 ? (
+        {isLoading ? (
+          <Spinner />
+        ) : displayCategories.length === 0 ? (
           <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
             No categories yet — add one above.
           </p>

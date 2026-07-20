@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { FloorMapCanvas } from "@/components/FloorMapCanvas";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
@@ -53,7 +54,7 @@ export default function EventDetailPage() {
   }, [event?.id, event?.map_visible]);
 
   if (loading) {
-    return null;
+    return <AuthPageSpinner />;
   }
 
   if (notFound || !event) {

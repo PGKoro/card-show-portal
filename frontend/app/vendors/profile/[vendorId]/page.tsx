@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { InventoryCard } from "@/components/InventoryCard";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import { useCategories } from "@/lib/CategoriesContext";
@@ -73,7 +74,7 @@ export default function PublicVendorProfilePage() {
   }, [vendorId]);
 
   if (loading) {
-    return null;
+    return <AuthPageSpinner />;
   }
 
   if (notFound || !vendor) {

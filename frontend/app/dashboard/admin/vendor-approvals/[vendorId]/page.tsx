@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useConfirm } from "@/components/ConfirmDialogProvider";
+import { Spinner } from "@/components/Spinner";
 import { getApiErrorMessage, apiFetch } from "@/lib/api";
 import { useCategories } from "@/lib/CategoriesContext";
 import { getAccessToken } from "@/lib/auth";
@@ -91,11 +92,7 @@ export default function VendorApprovalDetailPage() {
         )}
 
         {!vendor ? (
-          <div
-            role="status"
-            aria-label="Loading"
-            className="h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-brand-blue dark:border-gray-700"
-          />
+          <Spinner />
         ) : (
           <>
             <h1 className="mb-1 text-2xl font-semibold">{vendor.business_name}</h1>

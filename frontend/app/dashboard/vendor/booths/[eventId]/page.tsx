@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { ApiError, apiFetch, getApiErrorMessage } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 import { useCategories } from "@/lib/CategoriesContext";
@@ -117,7 +118,7 @@ export default function VendorBoothSelectionPage() {
     }
   }
 
-  if (loading) return null;
+  if (loading) return <AuthPageSpinner />;
 
   if (pageError) {
     return (
