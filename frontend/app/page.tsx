@@ -7,22 +7,55 @@ import { CardCarousel } from "@/components/CardCarousel";
 import { HeroCarousel, type HeroSlide } from "@/components/HeroCarousel";
 import { InventoryCard } from "@/components/InventoryCard";
 import { ShowCard } from "@/components/ShowCard";
-import { VendorCard } from "@/components/VendorCard";
-import { apiFetch } from "@/lib/api";
+import { VendorCard, type PublicVendor } from "@/components/VendorCard";
+import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import type { ShowEvent } from "@/lib/events";
-import { VENDORS, getExampleCardImage, getRecentListings, getVendorById } from "@/lib/mockData";
+import { type GradingCompany, type InventoryCondition, type InventoryItem } from "@/lib/mockData";
 
 const HERO_IMAGES = ["/cardshow1.webp", "/cardshow2.avif", "/cardshow3.jpeg"];
 
+type PublicListing = {
+  id: number;
+  title: string;
+  description: string;
+  category: string;
+  price: string;
+  condition: InventoryCondition;
+  grading: GradingCompany;
+  status: InventoryItem["status"];
+  vendor: number;
+  vendor_name: string;
+};
+
+function toInventoryItem(listing: PublicListing): InventoryItem {
+  return {
+    id: String(listing.id),
+    vendorId: String(listing.vendor),
+    category: listing.category,
+    title: listing.title,
+    price: Number(listing.price),
+    condition: listing.condition,
+    grading: listing.grading,
+    status: listing.status,
+    description: listing.description,
+  };
+}
+
 export default function HomePage() {
-  const featuredVendors = VENDORS;
-  const recentListings = getRecentListings(10);
+  const [featuredVendors, setFeaturedVendors] = useState<PublicVendor[]>([]);
+  const [recentListings, setRecentListings] = useState<PublicListing[]>([]);
   const [events, setEvents] = useState<ShowEvent[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     apiFetch<{ results: ShowEvent[] }>("/events/").then((data) => {
       if (!cancelled) setEvents(data.results);
+    });
+    apiFetch<PaginatedResponse<PublicVendor>>("/vendors/?page_size=10").then((data) => {
+      if (!cancelled) setFeaturedVendors(data.results);
+    });
+    apiFetch<PaginatedResponse<PublicListing>>("/listings/public/?page_size=10").then((data) => {
+      if (!cancelled) setRecentListings(data.results);
     });
     return () => {
       cancelled = true;
@@ -75,13 +108,17 @@ export default function HomePage() {
               View all vendors
             </Link>
           </div>
-          <CardCarousel autoAdvance={false}>
-            {featuredVendors.map((vendor) => (
-              <div key={vendor.id} className="w-72 shrink-0 snap-start sm:w-80">
-                <VendorCard vendor={vendor} />
-              </div>
-            ))}
-          </CardCarousel>
+          {featuredVendors.length === 0 ? (
+            <p className="text-gray-500 dark:text-gray-400">No vendors listed yet.</p>
+          ) : (
+            <CardCarousel autoAdvance={false}>
+              {featuredVendors.map((vendor) => (
+                <div key={vendor.pk} className="w-72 shrink-0 snap-start sm:w-80">
+                  <VendorCard vendor={vendor} />
+                </div>
+              ))}
+            </CardCarousel>
+          )}
         </div>
       </section>
 
@@ -93,21 +130,21 @@ export default function HomePage() {
               Browse all cards
             </Link>
           </div>
-          <CardCarousel loop>
-            {recentListings.map((item) => {
-              const vendor = getVendorById(item.vendorId);
-              return (
-                <div key={item.id} className="w-40 shrink-0 snap-start sm:w-44">
+          {recentListings.length === 0 ? (
+            <p className="text-gray-500 dark:text-gray-400">No cards listed yet.</p>
+          ) : (
+            <CardCarousel loop>
+              {recentListings.map((listing) => (
+                <div key={listing.id} className="w-40 shrink-0 snap-start sm:w-44">
                   <InventoryCard
-                    item={item}
-                    vendorName={vendor?.businessName}
-                    href={`/vendors/${item.vendorId}/items/${item.id}`}
-                    imageSrc={getExampleCardImage(item.id)}
+                    item={toInventoryItem(listing)}
+                    vendorName={listing.vendor_name}
+                    href={`/vendors/profile/${listing.vendor}`}
                   />
                 </div>
-              );
-            })}
-          </CardCarousel>
+              ))}
+            </CardCarousel>
+          )}
         </div>
       </section>
 

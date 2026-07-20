@@ -6,8 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { Pagination } from "@/components/Pagination";
 import { ApiError, getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
+import { useCategories } from "@/lib/CategoriesContext";
 import { getAccessToken } from "@/lib/auth";
-import { CATEGORY_LABELS, type VendorCategory } from "@/lib/mockData";
 
 const PAGE_SIZE = 5;
 
@@ -15,7 +15,7 @@ type PendingVendor = {
   pk: number;
   email: string;
   business_name: string;
-  category_tags: VendorCategory[];
+  category_tags: string[];
   date_joined: string;
 };
 
@@ -23,6 +23,7 @@ type Feedback = { id: number; text: string };
 
 export default function VendorApprovalsPage() {
   const confirm = useConfirm();
+  const { labelFor } = useCategories();
   const [pending, setPending] = useState<PendingVendor[]>([]);
   const [page, setPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
@@ -152,7 +153,7 @@ export default function VendorApprovalsPage() {
                         key={tag}
                         className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300"
                       >
-                        {CATEGORY_LABELS[tag]}
+                        {labelFor(tag)}
                       </span>
                     ))}
                     <span className="text-xs text-gray-400">

@@ -266,3 +266,28 @@ class PublicVendorDetailView(generics.RetrieveAPIView):
     permission_classes = [AllowAny]
     serializer_class = PublicVendorSerializer
     queryset = User.objects.filter(role=User.Role.VENDOR)
+
+
+class PublicVendorListView(generics.ListAPIView):
+    """
+    GET /api/v1/vendors/ — public directory of vendors (backs the /vendors
+    browse page and homepage's "Featured vendors"). Unlike
+    PublicVendorDetailView, this only surfaces *approved* vendors — a
+    pending/rejected vendor shouldn't show up in public browsing before an
+    admin has cleared them, even though the map still needs to show anyone
+    physically assigned a booth regardless of status.
+    """
+
+    permission_classes = [AllowAny]
+    serializer_class = PublicVendorSerializer
+
+    def get_queryset(self):
+        queryset = User.objects.filter(
+            role=User.Role.VENDOR, vendor_status=User.VendorStatus.APPROVED
+        )
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(business_name__icontains=search) | Q(location__icontains=search)
+            )
+        return queryset.order_by("business_name")

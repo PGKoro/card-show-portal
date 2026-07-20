@@ -669,6 +669,56 @@ class PublicVendorDetailTests(APITestCase):
         response = self.client.get(f"/api/v1/vendors/{self.vendor.pk}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+
+class PublicVendorListTests(APITestCase):
+    """Covers the public vendor directory (backs /vendors and the homepage)."""
+
+    def setUp(self):
+        self.approved = User.objects.create_user(
+            email="dir-approved@example.com",
+            password="s3cret!23",
+            business_name="Approved Cards Co",
+            location="Reno, NV",
+            role=User.Role.VENDOR,
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        self.pending = User.objects.create_user(
+            email="dir-pending@example.com",
+            password="s3cret!23",
+            business_name="Pending Cards Co",
+            role=User.Role.VENDOR,
+            vendor_status=User.VendorStatus.PENDING_REVIEW,
+        )
+        self.rejected = User.objects.create_user(
+            email="dir-rejected@example.com",
+            password="s3cret!23",
+            business_name="Rejected Cards Co",
+            role=User.Role.VENDOR,
+            vendor_status=User.VendorStatus.REJECTED,
+        )
+        self.customer = User.objects.create_user(
+            email="dir-cust@example.com", password="s3cret!23"
+        )
+
+    def test_only_approved_vendors_are_listed(self):
+        response = self.client.get("/api/v1/vendors/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = [item["business_name"] for item in response.data["results"]]
+        self.assertEqual(names, ["Approved Cards Co"])
+
+    def test_empty_when_no_vendors_are_approved_yet(self):
+        self.approved.vendor_status = User.VendorStatus.PENDING_REVIEW
+        self.approved.save(update_fields=["vendor_status"])
+        response = self.client.get("/api/v1/vendors/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["results"], [])
+
+    def test_search_by_business_name(self):
+        response = self.client.get("/api/v1/vendors/?search=Approved")
+        self.assertEqual(len(response.data["results"]), 1)
+        response = self.client.get("/api/v1/vendors/?search=nonexistent")
+        self.assertEqual(response.data["results"], [])
+
     def test_404_for_non_vendor_account(self):
         response = self.client.get(f"/api/v1/vendors/{self.customer.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

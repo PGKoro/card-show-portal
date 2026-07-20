@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { ApiError, apiFetch, getApiErrorMessage } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
+import { useCategories } from "@/lib/CategoriesContext";
 import {
   percent,
   resolveMapImage,
@@ -13,7 +14,6 @@ import {
   type VendorBooth,
   type VendorEventBooths,
 } from "@/lib/floorMap";
-import { CATEGORY_LABELS, CATEGORY_STYLES, type VendorCategory } from "@/lib/mockData";
 
 const AVAILABILITY_STYLES: Record<BoothAvailability, string> = {
   available: "border-green-500 bg-green-500/15 hover:bg-green-500/25",
@@ -42,6 +42,7 @@ function formatDeadline(iso: string): string {
 }
 
 export default function VendorBoothSelectionPage() {
+  const { labelFor, styleFor } = useCategories();
   const params = useParams<{ eventId: string }>();
   const [data, setData] = useState<VendorEventBooths | null>(null);
   const [loading, setLoading] = useState(true);
@@ -178,9 +179,7 @@ export default function VendorBoothSelectionPage() {
             {data.sections.map((section) => (
               <div
                 key={section.id}
-                className={`pointer-events-none absolute flex items-start justify-start p-1 ${
-                  CATEGORY_STYLES[section.category as VendorCategory] ?? "bg-gray-500/10 text-gray-600"
-                }`}
+                className={`pointer-events-none absolute flex items-start justify-start p-1 ${styleFor(section.category)}`}
                 style={{
                   left: `${percent(section.position_x)}%`,
                   top: `${percent(section.position_y)}%`,
@@ -189,7 +188,7 @@ export default function VendorBoothSelectionPage() {
                 }}
               >
                 <span className="rounded bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-black/50">
-                  {CATEGORY_LABELS[section.category as VendorCategory] ?? section.category}
+                  {labelFor(section.category)}
                 </span>
               </div>
             ))}

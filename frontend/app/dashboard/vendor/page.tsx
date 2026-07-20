@@ -7,17 +7,15 @@ import { InventoryCard } from "@/components/InventoryCard";
 import { getApiErrorMessage, apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { getAccessToken } from "@/lib/auth";
+import { useCategories } from "@/lib/CategoriesContext";
 import {
-  CATEGORY_LABELS,
   CONDITION_LABELS,
   GRADING_LABELS,
   type GradingCompany,
   type InventoryCondition,
   type InventoryItem,
-  type VendorCategory,
 } from "@/lib/mockData";
 
-const CATEGORIES = Object.keys(CATEGORY_LABELS) as VendorCategory[];
 const CONDITIONS = Object.keys(CONDITION_LABELS) as InventoryCondition[];
 const GRADINGS = Object.keys(GRADING_LABELS) as GradingCompany[];
 
@@ -25,7 +23,7 @@ type Listing = {
   id: number;
   title: string;
   description: string;
-  category: VendorCategory;
+  category: string;
   price: string;
   condition: InventoryCondition;
   grading: GradingCompany;
@@ -49,6 +47,7 @@ function toInventoryItem(listing: Listing): InventoryItem {
 
 export default function VendorDashboardPage() {
   const { user } = useAuth();
+  const { categories } = useCategories();
   const [listings, setListings] = useState<Listing[]>([]);
   const [loadingListings, setLoadingListings] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -56,7 +55,7 @@ export default function VendorDashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<VendorCategory>("modern");
+  const [category, setCategory] = useState("");
   const [price, setPrice] = useState("");
   const [condition, setCondition] = useState<InventoryCondition>("near-mint");
   const [grading, setGrading] = useState<GradingCompany>("ungraded");
@@ -79,6 +78,13 @@ export default function VendorDashboardPage() {
     };
   }, []);
 
+  // Defaults the form's category dropdown to the first available category
+  // once the live list loads — mirrors the old hardcoded "modern" default,
+  // just resolved from real data instead. Derived at render time rather
+  // than synced via an effect, since it's just picking a fallback display
+  // value, not synchronizing with an external system.
+  const effectiveCategory = category || categories[0]?.slug || "";
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setSubmitting(true);
@@ -88,7 +94,14 @@ export default function VendorDashboardPage() {
       const created = await apiFetch<Listing>("/listings/", {
         method: "POST",
         accessToken: getAccessToken() ?? undefined,
-        body: { title, category, price: price || "0", condition, grading, description },
+        body: {
+          title,
+          category: effectiveCategory,
+          price: price || "0",
+          condition,
+          grading,
+          description,
+        },
       });
       setListings((current) => [created, ...current]);
       setJustAdded(created.title);
@@ -186,13 +199,13 @@ export default function VendorDashboardPage() {
               </label>
               <select
                 id="category"
-                value={category}
-                onChange={(e) => setCategory(e.target.value as VendorCategory)}
+                value={effectiveCategory}
+                onChange={(e) => setCategory(e.target.value)}
                 className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
               >
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {CATEGORY_LABELS[c]}
+                {categories.map((c) => (
+                  <option key={c.slug} value={c.slug}>
+                    {c.name}
                   </option>
                 ))}
               </select>

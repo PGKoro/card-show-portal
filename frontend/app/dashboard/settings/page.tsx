@@ -6,22 +6,21 @@ import { useEffect, useState, type FormEvent } from "react";
 import { getApiErrorMessage, apiFetch } from "@/lib/api";
 import { useAuth, type CurrentUser } from "@/lib/AuthContext";
 import { dashboardPathForRole, getAccessToken } from "@/lib/auth";
-import { CATEGORY_LABELS, type VendorCategory } from "@/lib/mockData";
-
-const CATEGORIES = Object.keys(CATEGORY_LABELS) as VendorCategory[];
+import { useCategories } from "@/lib/CategoriesContext";
 
 // "Profile Settings" — lets a customer or vendor edit the info they gave
 // during onboarding (name, and role-specific details) after the fact.
 // Role itself isn't editable here; that stays admin-only (Manage Roles).
 export default function ProfileSettingsPage() {
   const { user, setUser } = useAuth();
+  const { categories } = useCategories();
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [businessDescription, setBusinessDescription] = useState("");
   const [location, setLocation] = useState("");
-  const [categoryTags, setCategoryTags] = useState<VendorCategory[]>([]);
+  const [categoryTags, setCategoryTags] = useState<string[]>([]);
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -40,13 +39,13 @@ export default function ProfileSettingsPage() {
       setBusinessName(user.business_name ?? "");
       setBusinessDescription(user.business_description ?? "");
       setLocation(user.location ?? "");
-      setCategoryTags((user.category_tags as VendorCategory[]) ?? []);
+      setCategoryTags(user.category_tags ?? []);
       setInitialized(true);
     }, 0);
     return () => clearTimeout(timer);
   }, [user, initialized]);
 
-  function toggleCategory(category: VendorCategory) {
+  function toggleCategory(category: string) {
     setCategoryTags((current) =>
       current.includes(category)
         ? current.filter((tag) => tag !== category)
@@ -190,18 +189,18 @@ export default function ProfileSettingsPage() {
               <div>
                 <span className="block text-sm font-medium">Categories you sell</span>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {CATEGORIES.map((category) => (
+                  {categories.map((category) => (
                     <button
                       type="button"
-                      key={category}
-                      onClick={() => toggleCategory(category)}
+                      key={category.slug}
+                      onClick={() => toggleCategory(category.slug)}
                       className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                        categoryTags.includes(category)
+                        categoryTags.includes(category.slug)
                           ? "border-brand-blue bg-brand-blue text-white"
                           : "border-gray-300 text-gray-600 dark:border-gray-700 dark:text-gray-300"
                       }`}
                     >
-                      {CATEGORY_LABELS[category]}
+                      {category.name}
                     </button>
                   ))}
                 </div>
@@ -216,18 +215,18 @@ export default function ProfileSettingsPage() {
                 <span className="font-normal text-gray-400">(optional)</span>
               </span>
               <div className="mt-2 flex flex-wrap gap-2">
-                {CATEGORIES.map((category) => (
+                {categories.map((category) => (
                   <button
                     type="button"
-                    key={category}
-                    onClick={() => toggleCategory(category)}
+                    key={category.slug}
+                    onClick={() => toggleCategory(category.slug)}
                     className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                      categoryTags.includes(category)
+                      categoryTags.includes(category.slug)
                         ? "border-brand-blue bg-brand-blue text-white"
                         : "border-gray-300 text-gray-600 dark:border-gray-700 dark:text-gray-300"
                     }`}
                   >
-                    {CATEGORY_LABELS[category]}
+                    {category.name}
                   </button>
                 ))}
               </div>

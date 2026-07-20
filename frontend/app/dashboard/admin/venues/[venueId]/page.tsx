@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { apiFetch, apiFetchMultipart, getApiErrorMessage } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
+import { useCategories } from "@/lib/CategoriesContext";
 import {
   BOOTH_SIZE_PRESETS,
   MAP_PRESETS,
@@ -16,9 +17,6 @@ import {
   type VenueMap,
   type VenueSection,
 } from "@/lib/floorMap";
-import { CATEGORY_LABELS, CATEGORY_STYLES, type VendorCategory } from "@/lib/mockData";
-
-const CATEGORIES = Object.keys(CATEGORY_LABELS) as VendorCategory[];
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Mode = "booth" | "section";
@@ -95,6 +93,7 @@ export default function VenueMapEditorPage() {
   const { venueId } = useParams<{ venueId: string }>();
   const router = useRouter();
   const confirm = useConfirm();
+  const { categories, labelFor, styleFor } = useCategories();
 
   const [venueName, setVenueName] = useState("");
   const [mapImageUrl, setMapImageUrl] = useState<string | null>(null);
@@ -191,7 +190,7 @@ export default function VenueMapEditorPage() {
 
   const [editingSection, setEditingSection] = useState<VenueSection | "new" | null>(null);
   const [sectionFormRect, setSectionFormRect] = useState<Rect | null>(null);
-  const [sectionCategory, setSectionCategory] = useState<VendorCategory>(CATEGORIES[0]);
+  const [sectionCategory, setSectionCategory] = useState("");
   const [sectionFormError, setSectionFormError] = useState<string | null>(null);
   const [sectionSubmitting, setSectionSubmitting] = useState(false);
 
@@ -314,7 +313,7 @@ export default function VenueMapEditorPage() {
   }
 
   function resetSectionForm() {
-    setSectionCategory(CATEGORIES[0]);
+    setSectionCategory(categories[0]?.slug ?? "");
     setSectionFormError(null);
   }
 
@@ -328,7 +327,7 @@ export default function VenueMapEditorPage() {
     resetSectionForm();
     setEditingSection(section);
     setSectionFormRect(null);
-    setSectionCategory((section.category as VendorCategory) || CATEGORIES[0]);
+    setSectionCategory(section.category || categories[0]?.slug || "");
   }
 
   function closeSectionForm() {
@@ -793,7 +792,7 @@ export default function VenueMapEditorPage() {
     const target = editingSection;
     const ok = await confirm({
       title: "Delete this section?",
-      message: `The ${CATEGORY_LABELS[(target.category as VendorCategory)] ?? target.category} zone will be removed.`,
+      message: `The ${labelFor(target.category)} zone will be removed.`,
       confirmLabel: "Delete",
       tone: "danger",
     });
@@ -1017,15 +1016,15 @@ export default function VenueMapEditorPage() {
                 liveRect && liveRect.kind === "section" && liveRect.id === section.id
                   ? liveRect.rect
                   : rectFromShape(section);
-              const category = section.category as VendorCategory;
+              const category = section.category;
               return (
                 <div
                   key={`section-${section.id}`}
                   onMouseDown={(e) => startMoveSection(e, section)}
-                  title={`${CATEGORY_LABELS[category] ?? section.category} zone`}
-                  className={`absolute flex items-start p-1 ${
-                    CATEGORY_STYLES[category] ?? "bg-gray-500/10 text-gray-600"
-                  } ${mode === "section" ? "cursor-move" : "pointer-events-none"}`}
+                  title={`${labelFor(category)} zone`}
+                  className={`absolute flex items-start p-1 ${styleFor(category)} ${
+                    mode === "section" ? "cursor-move" : "pointer-events-none"
+                  }`}
                   style={{
                     left: `${rect.x}%`,
                     top: `${rect.y}%`,
@@ -1034,7 +1033,7 @@ export default function VenueMapEditorPage() {
                   }}
                 >
                   <span className="rounded bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-black/50">
-                    {CATEGORY_LABELS[category] ?? section.category}
+                    {labelFor(category)}
                   </span>
                   {mode === "section" && (
                     <div
@@ -1261,12 +1260,12 @@ export default function VenueMapEditorPage() {
                 </label>
                 <select
                   value={sectionCategory}
-                  onChange={(e) => setSectionCategory(e.target.value as VendorCategory)}
+                  onChange={(e) => setSectionCategory(e.target.value)}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
                 >
-                  {CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {CATEGORY_LABELS[cat]}
+                  {categories.map((cat) => (
+                    <option key={cat.slug} value={cat.slug}>
+                      {cat.name}
                     </option>
                   ))}
                 </select>

@@ -5,6 +5,7 @@ import { ConfirmDialogProvider } from "@/components/ConfirmDialogProvider";
 import { Footer } from "@/components/Footer";
 import { NavBar } from "@/components/NavBar";
 import { AuthProvider } from "@/lib/AuthContext";
+import { CategoriesProvider } from "@/lib/CategoriesContext";
 
 import "./globals.css";
 
@@ -35,11 +36,13 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <AuthProvider>
-          <ConfirmDialogProvider>
-            <NavBar />
-            {children}
-            <Footer />
-          </ConfirmDialogProvider>
+          <CategoriesProvider>
+            <ConfirmDialogProvider>
+              <NavBar />
+              {children}
+              <Footer />
+            </ConfirmDialogProvider>
+          </CategoriesProvider>
         </AuthProvider>
       </body>
     </html>

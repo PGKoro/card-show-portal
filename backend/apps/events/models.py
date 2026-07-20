@@ -3,7 +3,7 @@ import datetime
 from django.conf import settings
 from django.db import models
 
-from apps.core.constants import CATEGORY_CHOICES
+from apps.core.models import Category
 
 # Generic layout diagrams an admin can fall back to when a venue can't
 # provide a real floor plan. The actual image assets are static frontend
@@ -91,7 +91,10 @@ class VenueSection(models.Model):
     """
 
     venue = models.ForeignKey(Venue, on_delete=models.CASCADE, related_name="sections")
-    category = models.CharField(max_length=50, choices=CATEGORY_CHOICES)
+    # Validated against apps.core.models.Category's live slugs at the
+    # serializer level (see VenueSectionSerializer.validate_category)
+    # rather than a hardcoded choices= tuple.
+    category = models.CharField(max_length=50)
 
     position_x = models.DecimalField(max_digits=5, decimal_places=2)
     position_y = models.DecimalField(max_digits=5, decimal_places=2)
@@ -105,7 +108,8 @@ class VenueSection(models.Model):
         ordering = ["id"]
 
     def __str__(self):
-        return f"{self.get_category_display()} section ({self.venue.name})"
+        label = Category.objects.filter(slug=self.category).values_list("name", flat=True).first()
+        return f"{label or self.category} section ({self.venue.name})"
 
 
 class Event(models.Model):
