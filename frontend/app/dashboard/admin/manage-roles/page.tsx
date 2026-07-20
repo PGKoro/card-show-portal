@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { Pagination } from "@/components/Pagination";
+import { Spinner } from "@/components/Spinner";
 import { ApiError, getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 
@@ -160,7 +161,9 @@ export default function ManageRolesPage() {
           className="mb-4 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
         />
 
-        {!loading && results.length === 0 ? (
+        {loading ? (
+          <Spinner />
+        ) : results.length === 0 ? (
           <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
             {search.trim() ? "No matching users." : "Search for a user by email to manage their role."}
           </p>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { ShowCard } from "@/components/ShowCard";
+import { Spinner } from "@/components/Spinner";
 import { apiFetch } from "@/lib/api";
 import type { ShowEvent } from "@/lib/events";
 
@@ -41,7 +42,9 @@ export default function EventsPage() {
         </p>
 
         <h2 className="mb-4 mt-10 text-xl font-semibold">Upcoming events</h2>
-        {!loading && upcomingShows.length === 0 ? (
+        {loading ? (
+          <Spinner />
+        ) : upcomingShows.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">No upcoming events.</p>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -52,7 +55,9 @@ export default function EventsPage() {
         )}
 
         <h2 className="mb-4 mt-12 text-xl font-semibold">Past events</h2>
-        {!loading && pastShows.length === 0 ? (
+        {loading ? (
+          <Spinner />
+        ) : pastShows.length === 0 ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">No past events.</p>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

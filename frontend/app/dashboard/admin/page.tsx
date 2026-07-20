@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { Spinner } from "@/components/Spinner";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 
@@ -52,17 +53,28 @@ export default function AdminDashboardPage() {
     vendorApprovals: null,
     boothRequests: null,
   });
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     const accessToken = getAccessToken() ?? undefined;
-    apiFetch<PaginatedResponse<unknown>>("/admin/vendors/pending/?page_size=1", { accessToken })
-      .then((data) => setCounts((c) => ({ ...c, vendorApprovals: data.count })))
-      .catch(() => {});
-    apiFetch<PaginatedResponse<unknown>>("/events/registrations/pending/?page_size=1", {
-      accessToken,
-    })
-      .then((data) => setCounts((c) => ({ ...c, boothRequests: data.count })))
-      .catch(() => {});
+    Promise.allSettled([
+      apiFetch<PaginatedResponse<unknown>>("/admin/vendors/pending/?page_size=1", {
+        accessToken,
+      }).then((data) => {
+        if (!cancelled) setCounts((c) => ({ ...c, vendorApprovals: data.count }));
+      }),
+      apiFetch<PaginatedResponse<unknown>>("/events/registrations/pending/?page_size=1", {
+        accessToken,
+      }).then((data) => {
+        if (!cancelled) setCounts((c) => ({ ...c, boothRequests: data.count }));
+      }),
+    ]).finally(() => {
+      if (!cancelled) setIsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -73,6 +85,9 @@ export default function AdminDashboardPage() {
           Pick a tool below.
         </p>
 
+        {isLoading ? (
+          <Spinner />
+        ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {ADMIN_TOOLS.map((tool) => {
             const count = tool.countKey ? counts[tool.countKey] : null;
@@ -95,6 +110,7 @@ export default function AdminDashboardPage() {
             );
           })}
         </div>
+        )}
       </div>
     </main>
   );

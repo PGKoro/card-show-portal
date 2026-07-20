@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { Spinner } from "@/components/Spinner";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 import { formatEventDateRange, type ShowEvent } from "@/lib/events";
@@ -45,7 +46,9 @@ export default function VendorBoothsIndexPage() {
           Upcoming events with booths available — pick your spot.
         </p>
 
-        {!loading && open.length === 0 ? (
+        {loading ? (
+          <Spinner />
+        ) : open.length === 0 ? (
           <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
             No events are open for booth selection right now — check back soon.
           </p>

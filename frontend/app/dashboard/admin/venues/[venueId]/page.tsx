@@ -3,6 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { apiFetch, apiFetchMultipart, getApiErrorMessage } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
@@ -827,7 +828,7 @@ export default function VenueMapEditorPage() {
   }
 
   if (loading) {
-    return null;
+    return <AuthPageSpinner />;
   }
 
   return (

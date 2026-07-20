@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { Pagination } from "@/components/Pagination";
+import { Spinner } from "@/components/Spinner";
 import { ApiError, getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
 import { useCategories } from "@/lib/CategoriesContext";
 import { getAccessToken } from "@/lib/auth";
@@ -131,7 +132,9 @@ export default function VendorApprovalsPage() {
           ))}
         </div>
 
-        {!loading && pending.length === 0 ? (
+        {loading ? (
+          <Spinner />
+        ) : pending.length === 0 ? (
           <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
             No pending approvals right now.
           </p>

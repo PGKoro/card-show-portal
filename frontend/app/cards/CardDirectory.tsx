@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { InventoryCard } from "@/components/InventoryCard";
 import { SearchInput } from "@/components/SearchInput";
+import { Spinner } from "@/components/Spinner";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import { useCategories } from "@/lib/CategoriesContext";
 import type { GradingCompany, InventoryCondition, InventoryItem } from "@/lib/mockData";
@@ -104,7 +105,9 @@ export function CardDirectory() {
         ))}
       </div>
 
-      {loading ? null : allListings.length === 0 ? (
+      {loading ? (
+        <Spinner />
+      ) : allListings.length === 0 ? (
         <p className="text-gray-500 dark:text-gray-400">No cards listed yet.</p>
       ) : listings.length === 0 ? (
         <p className="text-gray-500 dark:text-gray-400">No cards match your search.</p>

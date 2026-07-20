@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { FloorMapCanvas } from "@/components/FloorMapCanvas";
 import { ApiError, apiFetch } from "@/lib/api";
 import type { EventMap } from "@/lib/floorMap";
@@ -37,7 +38,7 @@ export default function PublicEventMapPage() {
   }, [eventId]);
 
   if (loading) {
-    return null;
+    return <AuthPageSpinner />;
   }
 
   if (unavailable || !map) {

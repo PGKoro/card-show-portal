@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { InventoryCard } from "@/components/InventoryCard";
+import { Spinner } from "@/components/Spinner";
 import { getApiErrorMessage, apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { getAccessToken } from "@/lib/auth";
@@ -290,7 +291,9 @@ export default function VendorDashboardPage() {
           </form>
         )}
 
-        {!loadingListings && listings.length === 0 ? (
+        {loadingListings ? (
+          <Spinner />
+        ) : listings.length === 0 ? (
           <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
             No items yet.
           </p>

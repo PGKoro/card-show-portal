@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { apiFetch, getApiErrorMessage } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 import type { ShowEvent } from "@/lib/events";
@@ -178,7 +179,7 @@ export default function EditEventPage() {
   }
 
   if (loading) {
-    return null;
+    return <AuthPageSpinner />;
   }
 
   if (notFound || !event) {
