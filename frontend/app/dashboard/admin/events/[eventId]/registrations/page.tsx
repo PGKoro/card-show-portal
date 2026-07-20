@@ -6,9 +6,9 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { apiFetch, getApiErrorMessage, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
+import { useCategories } from "@/lib/CategoriesContext";
 import type { ShowEvent } from "@/lib/events";
 import { percent, resolveMapImage, type BoothRegistration, type VenueMap } from "@/lib/floorMap";
-import { CATEGORY_LABELS, CATEGORY_STYLES, type VendorCategory } from "@/lib/mockData";
 
 const BOOTH_MAP_STATUS_STYLES: Record<string, string> = {
   requested: "border-amber-500 bg-amber-400/50",
@@ -16,8 +16,6 @@ const BOOTH_MAP_STATUS_STYLES: Record<string, string> = {
   confirmed: "border-green-600 bg-green-500/40",
   available: "border-gray-400 bg-gray-300/30",
 };
-
-const CATEGORIES = Object.keys(CATEGORY_LABELS) as VendorCategory[];
 
 type VendorSearchResult = { pk: number; email: string; business_name: string };
 
@@ -50,6 +48,7 @@ function RegistrationRow({
   onDecision: (id: number, decision: "confirm" | "decline") => void;
   busy: boolean;
 }) {
+  const { labelFor } = useCategories();
   const canDecide = registration.status === "requested" || registration.status === "loyalty_hold";
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -67,7 +66,7 @@ function RegistrationRow({
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {registrationName(registration)}
           {registration.unlinked_vendor_category
-            ? ` — ${CATEGORY_LABELS[registration.unlinked_vendor_category as VendorCategory] ?? registration.unlinked_vendor_category}`
+            ? ` — ${labelFor(registration.unlinked_vendor_category)}`
             : ""}
           {" · $"}
           {registration.price}
@@ -98,6 +97,7 @@ function RegistrationRow({
 }
 
 export default function EventRegistrationsPage() {
+  const { categories, styleFor } = useCategories();
   const params = useParams<{ eventId: string }>();
 
   const [event, setEvent] = useState<ShowEvent | null>(null);
@@ -113,10 +113,15 @@ export default function EventRegistrationsPage() {
   const [vendorResults, setVendorResults] = useState<VendorSearchResult[]>([]);
   const [selectedVendor, setSelectedVendor] = useState<VendorSearchResult | null>(null);
   const [unlinkedName, setUnlinkedName] = useState("");
-  const [unlinkedCategory, setUnlinkedCategory] = useState<VendorCategory>(CATEGORIES[0]);
+  const [unlinkedCategory, setUnlinkedCategory] = useState("");
   const [unlinkedContact, setUnlinkedContact] = useState("");
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
+
+  // Defaults to the first live category until the admin picks one —
+  // derived at render time rather than synced via an effect, since it's
+  // just a fallback display value, not synchronizing an external system.
+  const effectiveUnlinkedCategory = unlinkedCategory || categories[0]?.slug || "";
 
   async function loadRegistrations() {
     const data = await apiFetch<PaginatedResponse<BoothRegistration>>(
@@ -220,7 +225,7 @@ export default function EventRegistrationsPage() {
             : {
                 booth: assignBoothId,
                 unlinked_vendor_name: unlinkedName,
-                unlinked_vendor_category: unlinkedCategory,
+                unlinked_vendor_category: effectiveUnlinkedCategory,
                 unlinked_vendor_contact: unlinkedContact,
               },
       });
@@ -330,9 +335,7 @@ export default function EventRegistrationsPage() {
               {venueMap.sections.map((section) => (
                 <div
                   key={section.id}
-                  className={`pointer-events-none absolute flex items-start p-1 ${
-                    CATEGORY_STYLES[section.category as VendorCategory] ?? "bg-gray-500/10 text-gray-600"
-                  }`}
+                  className={`pointer-events-none absolute flex items-start p-1 ${styleFor(section.category)}`}
                   style={{
                     left: `${percent(section.position_x)}%`,
                     top: `${percent(section.position_y)}%`,
@@ -528,13 +531,13 @@ export default function EventRegistrationsPage() {
                     className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
                   />
                   <select
-                    value={unlinkedCategory}
-                    onChange={(e) => setUnlinkedCategory(e.target.value as VendorCategory)}
+                    value={effectiveUnlinkedCategory}
+                    onChange={(e) => setUnlinkedCategory(e.target.value)}
                     className="rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
                   >
-                    {CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {CATEGORY_LABELS[cat]}
+                    {categories.map((cat) => (
+                      <option key={cat.slug} value={cat.slug}>
+                        {cat.name}
                       </option>
                     ))}
                   </select>

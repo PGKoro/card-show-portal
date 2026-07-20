@@ -37,6 +37,12 @@ const ADMIN_TOOLS = [
     description: "Build reusable floor plans (booths + pricing) for each location.",
     countKey: null,
   },
+  {
+    href: "/dashboard/admin/categories",
+    title: "Manage Categories",
+    description: "Add, remove, and reorder the card categories used across the site.",
+    countKey: null,
+  },
 ] as const;
 
 type CountKey = "vendorApprovals" | "boothRequests";

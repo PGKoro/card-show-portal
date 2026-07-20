@@ -1,7 +1,5 @@
 import Link from "next/link";
 
-import { MESSAGES, getItemById, getVendorById } from "@/lib/mockData";
-
 export default function CustomerDashboardPage() {
   return (
     <main className="flex-1 px-6 py-12">
@@ -24,27 +22,8 @@ export default function CustomerDashboardPage() {
           </div>
         </div>
 
-        <div className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white shadow-sm dark:divide-gray-800 dark:border-gray-800">
-          {MESSAGES.map((message) => {
-            const item = getItemById(message.itemId);
-            const vendor = getVendorById(message.vendorId);
-            if (!item || !vendor) return null;
-
-            return (
-              <Link
-                key={message.id}
-                href={`/vendors/${vendor.id}/items/${item.id}`}
-                className="flex flex-col gap-1 p-4 hover:bg-gray-50 dark:hover:bg-gray-900"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium">{message.fromName}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{message.timestamp}</p>
-                </div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Re: {item.title}</p>
-                <p className="truncate text-sm text-gray-600 dark:text-gray-300">{message.preview}</p>
-              </Link>
-            );
-          })}
+        <div className="rounded-lg border border-gray-200 bg-white p-6 text-center shadow-sm dark:border-gray-800">
+          <p className="text-sm text-gray-500 dark:text-gray-400">No messages yet.</p>
         </div>
       </div>
     </main>

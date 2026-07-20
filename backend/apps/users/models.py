@@ -41,7 +41,7 @@ class User(AbstractUser):
     location = models.CharField(max_length=200, blank=True)
 
     # For vendors: categories they sell. For customers: categories they're
-    # interested in. Same vocabulary (see apps.core.constants.CATEGORY_VALUES),
+    # interested in. Same vocabulary (see apps.core.models.Category),
     # reused across both roles rather than duplicating the field.
     category_tags = models.JSONField(default=list, blank=True)
 

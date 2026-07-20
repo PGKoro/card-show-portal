@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { useCategories } from "@/lib/CategoriesContext";
 import type { EventMap, PublicBooth } from "@/lib/floorMap";
 import { percent, resolveMapImage } from "@/lib/floorMap";
-import { CATEGORY_LABELS, CATEGORY_STYLES, type VendorCategory } from "@/lib/mockData";
 
 /**
  * Renders a floor map's image plus its booth markers — hover a booth
@@ -16,6 +16,7 @@ import { CATEGORY_LABELS, CATEGORY_STYLES, type VendorCategory } from "@/lib/moc
  * place.
  */
 export function FloorMapCanvas({ map }: { map: EventMap }) {
+  const { labelFor, styleFor } = useCategories();
   const [selectedBooth, setSelectedBooth] = useState<PublicBooth | null>(null);
   const displayImageUrl = resolveMapImage(map);
 
@@ -30,9 +31,7 @@ export function FloorMapCanvas({ map }: { map: EventMap }) {
         {map.sections.map((section) => (
           <div
             key={section.id}
-            className={`pointer-events-none absolute flex items-start justify-start p-1 ${
-              CATEGORY_STYLES[section.category as VendorCategory] ?? "bg-gray-500/10 text-gray-600"
-            }`}
+            className={`pointer-events-none absolute flex items-start justify-start p-1 ${styleFor(section.category)}`}
             style={{
               left: `${percent(section.position_x)}%`,
               top: `${percent(section.position_y)}%`,
@@ -41,7 +40,7 @@ export function FloorMapCanvas({ map }: { map: EventMap }) {
             }}
           >
             <span className="rounded bg-white/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide dark:bg-black/50">
-              {CATEGORY_LABELS[section.category as VendorCategory] ?? section.category}
+              {labelFor(section.category)}
             </span>
           </div>
         ))}
@@ -65,9 +64,7 @@ export function FloorMapCanvas({ map }: { map: EventMap }) {
             <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-brand-navy px-2 py-1 text-xs text-white group-hover:block">
               {booth.vendor_name}
               {booth.vendor_category_tags.length > 0 &&
-                ` — ${booth.vendor_category_tags
-                  .map((tag) => CATEGORY_LABELS[tag as VendorCategory] ?? tag)
-                  .join(", ")}`}
+                ` — ${booth.vendor_category_tags.map((tag) => labelFor(tag)).join(", ")}`}
             </span>
           </button>
         ))}
@@ -99,7 +96,7 @@ export function FloorMapCanvas({ map }: { map: EventMap }) {
                     key={tag}
                     className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300"
                   >
-                    {CATEGORY_LABELS[tag as VendorCategory] ?? tag}
+                    {labelFor(tag)}
                   </span>
                 ))}
               </div>

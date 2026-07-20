@@ -106,3 +106,65 @@ class PublicVendorListingsTests(APITestCase):
     def test_404_for_non_vendor_account(self):
         response = self.client.get(f"/api/v1/vendors/{self.customer.pk}/listings/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class PublicListingFeedTests(APITestCase):
+    """Covers the cross-vendor public feed backing the homepage/cards page."""
+
+    def setUp(self):
+        self.approved_vendor = User.objects.create_user(
+            email="feed-approved@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Approved Feed Co",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        self.pending_vendor = User.objects.create_user(
+            email="feed-pending@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Pending Feed Co",
+            vendor_status=User.VendorStatus.PENDING_REVIEW,
+        )
+
+        access = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "feed-approved@example.com", "password": "s3cret!23"},
+        ).data["access"]
+        self.client.post(
+            "/api/v1/listings/",
+            {"title": "Rookie Card", "category": "vintage", "price": "20.00", "condition": "mint"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+
+        # A pending vendor can still list their own items on their own
+        # dashboard (see ListingListCreateView), but those shouldn't leak
+        # into the public feed until they're approved.
+        self.pending_vendor.vendor_status = User.VendorStatus.PENDING_REVIEW
+        self.pending_vendor.save(update_fields=["vendor_status"])
+
+    def test_shows_only_approved_vendors_listings(self):
+        response = self.client.get("/api/v1/listings/public/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        titles = [item["title"] for item in response.data["results"]]
+        self.assertEqual(titles, ["Rookie Card"])
+
+    def test_includes_vendor_identity_for_linking(self):
+        response = self.client.get("/api/v1/listings/public/")
+        result = response.data["results"][0]
+        self.assertEqual(result["vendor"], self.approved_vendor.pk)
+        self.assertEqual(result["vendor_name"], "Approved Feed Co")
+
+    def test_empty_when_no_approved_vendors_have_listings(self):
+        Listing = self.approved_vendor.listings.model
+        Listing.objects.all().delete()
+        response = self.client.get("/api/v1/listings/public/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["results"], [])
+
+    def test_category_filter(self):
+        response = self.client.get("/api/v1/listings/public/?category=modern")
+        self.assertEqual(response.data["results"], [])
+        response = self.client.get("/api/v1/listings/public/?category=vintage")
+        self.assertEqual(len(response.data["results"]), 1)

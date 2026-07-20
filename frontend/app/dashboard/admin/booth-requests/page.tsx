@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { apiFetch, getApiErrorMessage, type PaginatedResponse } from "@/lib/api";
+import { useCategories } from "@/lib/CategoriesContext";
 import { getAccessToken } from "@/lib/auth";
 import { percent, resolveMapImage, type PendingBoothRegistration, type VenueMap } from "@/lib/floorMap";
-import { CATEGORY_LABELS, type VendorCategory } from "@/lib/mockData";
 
 function FloorPlanThumbnail({ venueMap, boothId }: { venueMap: VenueMap | undefined; boothId: number }) {
   if (!venueMap) {
@@ -63,6 +63,7 @@ function formatRequestedAt(iso: string): string {
 }
 
 export default function BoothRequestsPage() {
+  const { labelFor } = useCategories();
   const [rows, setRows] = useState<PendingBoothRegistration[]>([]);
   const [venueMaps, setVenueMaps] = useState<Record<number, VenueMap>>({});
   const [loading, setLoading] = useState(true);
@@ -171,7 +172,7 @@ export default function BoothRequestsPage() {
                       <p className="text-sm text-gray-500 dark:text-gray-400">
                         {row.vendor_detail?.label || row.unlinked_vendor_name}
                         {row.unlinked_vendor_category
-                          ? ` — ${CATEGORY_LABELS[row.unlinked_vendor_category as VendorCategory] ?? row.unlinked_vendor_category}`
+                          ? ` — ${labelFor(row.unlinked_vendor_category)}`
                           : ""}
                       </p>
                       <p className="mt-1 text-xs text-gray-400">

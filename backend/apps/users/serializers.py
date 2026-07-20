@@ -3,9 +3,23 @@ from dj_rest_auth.registration.serializers import (
 )
 from rest_framework import serializers
 
-from apps.core.constants import CATEGORY_VALUES
+from apps.core.models import Category
 
 from .models import User
+
+
+def _validate_category_tags(value):
+    """
+    Shared by OnboardingDetailsSerializer/ProfileSerializer below — checks
+    each tag against the live Category vocabulary (apps.core.models.
+    Category) instead of a hardcoded choices= list, so admins can add/
+    remove categories without a code deploy.
+    """
+    valid_slugs = set(Category.objects.values_list("slug", flat=True))
+    invalid = sorted(set(value) - valid_slugs)
+    if invalid:
+        raise serializers.ValidationError(f"Not valid categories: {', '.join(invalid)}.")
+    return value
 
 
 class RegisterSerializer(BaseRegisterSerializer):
@@ -108,7 +122,7 @@ class OnboardingDetailsSerializer(serializers.ModelSerializer):
     """
 
     category_tags = serializers.ListField(
-        child=serializers.ChoiceField(choices=CATEGORY_VALUES),
+        child=serializers.CharField(),
         required=False,
         default=list,
     )
@@ -121,6 +135,9 @@ class OnboardingDetailsSerializer(serializers.ModelSerializer):
             "business_description": {"required": False, "allow_blank": True},
             "location": {"required": False, "allow_blank": True},
         }
+
+    def validate_category_tags(self, value):
+        return _validate_category_tags(value)
 
     def validate(self, attrs):
         if self.instance.role == User.Role.VENDOR and not attrs.get("business_name"):
@@ -154,7 +171,7 @@ class ProfileSerializer(serializers.ModelSerializer):
     """
 
     category_tags = serializers.ListField(
-        child=serializers.ChoiceField(choices=CATEGORY_VALUES),
+        child=serializers.CharField(),
         required=False,
     )
 
@@ -174,6 +191,9 @@ class ProfileSerializer(serializers.ModelSerializer):
             "business_description": {"required": False, "allow_blank": True},
             "location": {"required": False, "allow_blank": True},
         }
+
+    def validate_category_tags(self, value):
+        return _validate_category_tags(value)
 
     def validate(self, attrs):
         if (

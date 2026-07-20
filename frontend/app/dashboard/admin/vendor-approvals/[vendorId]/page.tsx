@@ -6,8 +6,8 @@ import { useEffect, useState } from "react";
 
 import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { getApiErrorMessage, apiFetch } from "@/lib/api";
+import { useCategories } from "@/lib/CategoriesContext";
 import { getAccessToken } from "@/lib/auth";
-import { CATEGORY_LABELS, type VendorCategory } from "@/lib/mockData";
 
 type VendorDetail = {
   pk: number;
@@ -17,7 +17,7 @@ type VendorDetail = {
   business_name: string;
   business_description: string;
   location: string;
-  category_tags: VendorCategory[];
+  category_tags: string[];
   vendor_status: "pending_review" | "approved" | "rejected" | null;
   date_joined: string;
 };
@@ -26,6 +26,7 @@ export default function VendorApprovalDetailPage() {
   const { vendorId } = useParams<{ vendorId: string }>();
   const router = useRouter();
   const confirm = useConfirm();
+  const { labelFor } = useCategories();
 
   const [vendor, setVendor] = useState<VendorDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +143,7 @@ export default function VendorApprovalDetailPage() {
                         key={tag}
                         className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300"
                       >
-                        {CATEGORY_LABELS[tag]}
+                        {labelFor(tag)}
                       </span>
                     ))
                   )}

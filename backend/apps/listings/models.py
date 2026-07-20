@@ -1,8 +1,6 @@
 from django.conf import settings
 from django.db import models
 
-from apps.core.constants import CATEGORY_CHOICES
-
 
 class Listing(models.Model):
     """
@@ -36,7 +34,11 @@ class Listing(models.Model):
     )
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    # Validated against apps.core.models.Category's live slugs at the
+    # serializer level (see ListingSerializer.validate_category) rather
+    # than a hardcoded choices= tuple, so admins can add/remove categories
+    # without a migration.
+    category = models.CharField(max_length=20)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     condition = models.CharField(max_length=20, choices=Condition.choices)
     grading = models.CharField(max_length=20, choices=Grading.choices, default=Grading.UNGRADED)

@@ -8,18 +8,17 @@ import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { getApiErrorMessage, apiFetch } from "@/lib/api";
 import { useAuth, type CurrentUser } from "@/lib/AuthContext";
 import { dashboardPathForRole, getAccessToken } from "@/lib/auth";
-import { CATEGORY_LABELS, type VendorCategory } from "@/lib/mockData";
-
-const CATEGORIES = Object.keys(CATEGORY_LABELS) as VendorCategory[];
+import { useCategories } from "@/lib/CategoriesContext";
 
 // Onboarding step 2 for customers: optional interests, then done. Step 1
 // (name + role) already happened on /onboarding.
 export default function CustomerOnboardingPage() {
   const router = useRouter();
   const { user, isLoading, setUser } = useAuth();
+  const { categories } = useCategories();
   const checkedRef = useRef(false);
 
-  const [categoryTags, setCategoryTags] = useState<VendorCategory[]>([]);
+  const [categoryTags, setCategoryTags] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // See the matching comment in app/onboarding/page.tsx — setUser(updated)
@@ -41,7 +40,7 @@ export default function CustomerOnboardingPage() {
     }
   }, [isLoading, user, router]);
 
-  function toggleCategory(category: VendorCategory) {
+  function toggleCategory(category: string) {
     setCategoryTags((current) =>
       current.includes(category)
         ? current.filter((tag) => tag !== category)
@@ -106,18 +105,18 @@ export default function CustomerOnboardingPage() {
             <span className="font-normal text-gray-400">(optional)</span>
           </span>
           <div className="mt-2 flex flex-wrap gap-2">
-            {CATEGORIES.map((category) => (
+            {categories.map((category) => (
               <button
                 type="button"
-                key={category}
-                onClick={() => toggleCategory(category)}
+                key={category.slug}
+                onClick={() => toggleCategory(category.slug)}
                 className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                  categoryTags.includes(category)
+                  categoryTags.includes(category.slug)
                     ? "border-brand-blue bg-brand-blue text-white"
                     : "border-gray-300 text-gray-600 dark:border-gray-700 dark:text-gray-300"
                 }`}
               >
-                {CATEGORY_LABELS[category]}
+                {category.name}
               </button>
             ))}
           </div>

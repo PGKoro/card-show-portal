@@ -3,6 +3,11 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from apps.core.views import (
+    AdminCategoryDetailView,
+    AdminCategoryListCreateView,
+    AdminCategoryReorderView,
+)
 from apps.listings.views import PublicVendorListingsView
 from apps.users.views import (
     AdminUserDetailView,
@@ -15,6 +20,7 @@ from apps.users.views import (
     PendingVendorListView,
     ProfileView,
     PublicVendorDetailView,
+    PublicVendorListView,
     RejectVendorView,
     SetUserRoleView,
     ThrottledLoginView,
@@ -74,6 +80,23 @@ urlpatterns = [
         RejectVendorView.as_view(),
         name="reject-vendor",
     ),
+    # Admin category management (create/rename/delete/reorder the shared
+    # category vocabulary — see apps.core.models.Category).
+    path(
+        "api/v1/admin/categories/",
+        AdminCategoryListCreateView.as_view(),
+        name="admin-category-list-create",
+    ),
+    path(
+        "api/v1/admin/categories/reorder/",
+        AdminCategoryReorderView.as_view(),
+        name="admin-category-reorder",
+    ),
+    path(
+        "api/v1/admin/categories/<int:pk>/",
+        AdminCategoryDetailView.as_view(),
+        name="admin-category-detail",
+    ),
     # Admin user management (search + change a user's role).
     path("api/v1/admin/users/", AdminUserSearchView.as_view(), name="admin-user-search"),
     path("api/v1/admin/users/<int:pk>/", AdminUserDetailView.as_view(), name="admin-user-detail"),
@@ -82,6 +105,9 @@ urlpatterns = [
         SetUserRoleView.as_view(),
         name="set-user-role",
     ),
+    # Public vendor directory — approved vendors only (backs /vendors and
+    # the homepage's "Featured vendors").
+    path("api/v1/vendors/", PublicVendorListView.as_view(), name="public-vendor-list"),
     # Public vendor profile (business info + their listings) — backs the
     # floor map's click-through for booths linked to a real account.
     path("api/v1/vendors/<int:pk>/", PublicVendorDetailView.as_view(), name="public-vendor-detail"),

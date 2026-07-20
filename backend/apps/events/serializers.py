@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.core.models import Category
 from apps.users.models import User
 
 from .models import Booth, BoothRegistration, Event, Venue, VenueSection
@@ -161,6 +162,11 @@ class VenueSectionSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate_category(self, value):
+        if not Category.objects.filter(slug=value).exists():
+            raise serializers.ValidationError("Not a valid category.")
+        return value
 
     def validate_position_x(self, value):
         return _validate_percentage(value, "position_x")
