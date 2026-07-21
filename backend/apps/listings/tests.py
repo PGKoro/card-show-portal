@@ -7,6 +7,8 @@ from rest_framework.test import APITestCase
 
 from apps.users.models import User
 
+from .models import Listing
+
 
 class ListingGradingTests(APITestCase):
     """Covers the "grading" dropdown (PSA/BGS/SGC/CGC/ungraded/other)."""
@@ -168,3 +170,52 @@ class PublicListingFeedTests(APITestCase):
         self.assertEqual(response.data["results"], [])
         response = self.client.get("/api/v1/listings/public/?category=vintage")
         self.assertEqual(len(response.data["results"]), 1)
+
+
+class PublicListingDetailTests(APITestCase):
+    """Covers the single-card page a "Recent listings"/Browse Cards click lands on."""
+
+    def setUp(self):
+        self.approved_vendor = User.objects.create_user(
+            email="detail-approved@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Approved Detail Co",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        self.pending_vendor = User.objects.create_user(
+            email="detail-pending@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Pending Detail Co",
+            vendor_status=User.VendorStatus.PENDING_REVIEW,
+        )
+        self.listing = Listing.objects.create(
+            vendor=self.approved_vendor,
+            title="Rookie Card",
+            category="vintage",
+            price="20.00",
+            condition="mint",
+        )
+        self.pending_listing = Listing.objects.create(
+            vendor=self.pending_vendor,
+            title="Not Yet Public",
+            category="vintage",
+            price="5.00",
+            condition="good",
+        )
+
+    def test_anonymous_visitor_can_view_a_listing(self):
+        response = self.client.get(f"/api/v1/listings/public/{self.listing.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["title"], "Rookie Card")
+        self.assertEqual(response.data["vendor"], self.approved_vendor.pk)
+        self.assertEqual(response.data["vendor_name"], "Approved Detail Co")
+
+    def test_404_for_listing_from_a_pending_vendor(self):
+        response = self.client.get(f"/api/v1/listings/public/{self.pending_listing.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_404_for_missing_listing(self):
+        response = self.client.get("/api/v1/listings/public/999999/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

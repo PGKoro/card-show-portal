@@ -5,7 +5,9 @@ import {
   cloneElement,
   isValidElement,
   useEffect,
+  useLayoutEffect,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 
@@ -29,6 +31,35 @@ export function CardCarousel({
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const pausedRef = useRef(false);
+  const items = Children.toArray(children);
+  // Duplicating the row only makes sense once the real content already
+  // overflows the visible area — otherwise (e.g. right after a vendor adds
+  // their first card or two) the "duplicate" copy sits right next to the
+  // originals with nothing to scroll, which just reads as the same card
+  // rendered twice.
+  const [needsLoop, setNeedsLoop] = useState(false);
+  const effectiveLoop = loop && needsLoop;
+
+  useLayoutEffect(() => {
+    // effectiveLoop is `loop && needsLoop`, so leaving needsLoop stale while
+    // loop is false is harmless — it only matters again once loop flips
+    // back on, at which point this effect re-runs and re-measures.
+    if (!loop) return;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+
+    function measure() {
+      // While needsLoop is true the DOM already includes the duplicated
+      // copy, so halve scrollWidth to get back the real row's width —
+      // keeps this stable across re-renders instead of flip-flopping.
+      const baseWidth = needsLoop ? scroller!.scrollWidth / 2 : scroller!.scrollWidth;
+      setNeedsLoop(baseWidth > scroller!.clientWidth + 1);
+    }
+
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [loop, needsLoop, items.length]);
 
   useEffect(() => {
     if (!autoAdvance) return;
@@ -39,7 +70,7 @@ export function CardCarousel({
 
       const step = scroller.clientWidth * STEP_FRACTION;
 
-      if (loop) {
+      if (effectiveLoop) {
         // The row is rendered twice back-to-back. Once we've scrolled past
         // the first copy, jump back by exactly one copy's width — since
         // both copies are identical, the jump is invisible — before
@@ -62,7 +93,7 @@ export function CardCarousel({
     }, AUTO_ADVANCE_MS);
 
     return () => clearInterval(timer);
-  }, [loop, autoAdvance]);
+  }, [effectiveLoop, autoAdvance]);
 
   function scrollByPage(direction: 1 | -1) {
     const scroller = scrollerRef.current;
@@ -70,8 +101,7 @@ export function CardCarousel({
     scroller.scrollBy({ left: direction * scroller.clientWidth * STEP_FRACTION, behavior: "smooth" });
   }
 
-  const items = Children.toArray(children);
-  const duplicated = loop
+  const duplicated = effectiveLoop
     ? items.map((child) => (isValidElement(child) ? cloneElement(child, { key: `dup-${child.key}` }) : child))
     : [];
 

@@ -73,3 +73,21 @@ class PublicListingListView(generics.ListAPIView):
         if category:
             queryset = queryset.filter(category=category)
         return queryset
+
+
+class PublicListingDetailView(generics.RetrieveAPIView):
+    """
+    GET /api/v1/listings/public/<id>/ — a single listing's own page (backs
+    the "click a card" flow from the homepage/Browse Cards feeds, which
+    used to dead-end on the vendor's whole inventory instead of the actual
+    card). Same approved-vendor scoping as PublicListingListView.
+    """
+
+    permission_classes = [AllowAny]
+    serializer_class = PublicListingSerializer
+
+    def get_queryset(self):
+        return Listing.objects.select_related("vendor").filter(
+            vendor__role=User.Role.VENDOR,
+            vendor__vendor_status=User.VendorStatus.APPROVED,
+        )

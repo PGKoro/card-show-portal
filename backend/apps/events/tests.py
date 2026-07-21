@@ -39,6 +39,8 @@ class EventApiTests(APITestCase):
         self.vendor.business_name = "Vendor Co"
         self.vendor.save()
 
+        self.venue = Venue.objects.create(name="Test Venue", city="Test City")
+
         today = datetime.date.today()
         self.upcoming = Event.objects.create(
             name="Upcoming Show",
@@ -89,8 +91,7 @@ class EventApiTests(APITestCase):
             "/api/v1/events/",
             {
                 "name": "New Show",
-                "venue": "V",
-                "city": "C",
+                "map_venue": self.venue.pk,
                 "start_date": "2027-01-01",
                 "end_date": "2027-01-02",
                 "description": "A new show",
@@ -107,14 +108,44 @@ class EventApiTests(APITestCase):
             response.data["vendors_detail"], [{"pk": self.vendor.pk, "label": "Vendor Co"}]
         )
 
+    def test_create_derives_venue_and_city_from_map_venue(self):
+        # venue/city are read-only — a client-supplied value is ignored in
+        # favor of whatever the selected Venue's own name/city are.
+        access = self.access_for("events-admin@example.com")
+        response = self.client.post(
+            "/api/v1/events/",
+            {
+                "name": "New Show",
+                "map_venue": self.venue.pk,
+                "venue": "Should be ignored",
+                "city": "Should be ignored",
+                "start_date": "2027-01-01",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["venue"], "Test Venue")
+        self.assertEqual(response.data["city"], "Test City")
+
+    def test_create_requires_a_map_venue(self):
+        access = self.access_for("events-admin@example.com")
+        response = self.client.post(
+            "/api/v1/events/",
+            {"name": "New Show", "start_date": "2027-01-01"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("map_venue", response.data)
+
     def test_create_rejects_non_vendor_user_in_vendors_field(self):
         access = self.access_for("events-admin@example.com")
         response = self.client.post(
             "/api/v1/events/",
             {
                 "name": "New Show",
-                "venue": "V",
-                "city": "C",
+                "map_venue": self.venue.pk,
                 "start_date": "2027-01-01",
                 "vendors": [self.customer.pk],
             },

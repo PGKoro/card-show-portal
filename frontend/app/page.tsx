@@ -139,7 +139,7 @@ export default function HomePage() {
                   <InventoryCard
                     item={toInventoryItem(listing)}
                     vendorName={listing.vendor_name}
-                    href={`/vendors/profile/${listing.vendor}`}
+                    href={`/cards/${listing.id}`}
                   />
                 </div>
               ))}

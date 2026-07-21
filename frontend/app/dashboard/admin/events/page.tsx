@@ -77,6 +77,14 @@ export default function AdminEventsPage() {
           </Link>
         </div>
 
+        <p className="mb-6 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+          Events are built around a venue — create the venue in{" "}
+          <Link href="/dashboard/admin/venues" className="font-medium underline">
+            Manage Venues
+          </Link>{" "}
+          first, then you&apos;ll be able to select it when adding or editing an event.
+        </p>
+
         <input
           type="text"
           value={search}

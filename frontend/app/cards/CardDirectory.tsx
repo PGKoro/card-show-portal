@@ -118,7 +118,7 @@ export function CardDirectory() {
               key={listing.id}
               item={toInventoryItem(listing)}
               vendorName={listing.vendor_name}
-              href={`/vendors/profile/${listing.vendor}`}
+              href={`/cards/${listing.id}`}
             />
           ))}
         </div>

@@ -210,8 +210,6 @@ export default function EditEventPage() {
           submitLabel="Save changes"
           initialValues={{
             name: event.name,
-            venue: event.venue,
-            city: event.city,
             description: event.description,
             start_date: event.start_date,
             end_date: event.end_date,

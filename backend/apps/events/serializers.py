@@ -19,6 +19,13 @@ class EventSerializer(serializers.ModelSerializer):
     vendors = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(role=User.Role.VENDOR), many=True, required=False
     )
+    # A venue has to already exist in the Venue Manager — this is a link to
+    # a real Venue, not a free-text name, so admins can't create an event
+    # around a venue that was never set up (and reuse its floor plan/booths
+    # instead of describing the location fresh each time). Required (no
+    # allow_null) on create; a PATCH that omits it just leaves the existing
+    # venue alone, same as any other partial update.
+    map_venue = serializers.PrimaryKeyRelatedField(queryset=Venue.objects.all())
     # {pk, label} pairs rather than parallel `vendors`/`vendor_names` arrays,
     # so the frontend never has to assume the two arrays come back in the
     # same order (obj.vendors.all() has no guaranteed ordering across two
@@ -52,6 +59,11 @@ class EventSerializer(serializers.ModelSerializer):
             "map_visible_to_vendors",
             "loyalty_priority_deadline",
         )
+        # venue/city are copied from map_venue (see _sync_venue_fields)
+        # rather than typed in directly — kept as their own fields since
+        # search (?search=) and every event-display consumer read them
+        # straight off the event rather than through map_venue_detail.
+        read_only_fields = ("venue", "city")
 
     def get_vendors_detail(self, obj):
         return [
@@ -63,6 +75,21 @@ class EventSerializer(serializers.ModelSerializer):
         if not obj.map_venue_id:
             return None
         return {"pk": obj.map_venue_id, "name": obj.map_venue.name}
+
+    @staticmethod
+    def _sync_venue_fields(validated_data):
+        map_venue = validated_data.get("map_venue")
+        if map_venue is not None:
+            validated_data["venue"] = map_venue.name
+            validated_data["city"] = map_venue.city
+
+    def create(self, validated_data):
+        self._sync_venue_fields(validated_data)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        self._sync_venue_fields(validated_data)
+        return super().update(instance, validated_data)
 
 
 class VenueSerializer(serializers.ModelSerializer):
