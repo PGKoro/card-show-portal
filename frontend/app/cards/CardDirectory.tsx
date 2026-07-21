@@ -7,7 +7,7 @@ import { SearchInput } from "@/components/SearchInput";
 import { Spinner } from "@/components/Spinner";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import { useCategories } from "@/lib/CategoriesContext";
-import type { GradingCompany, InventoryCondition, InventoryItem } from "@/lib/mockData";
+import type { GradingCompany, InventoryItem } from "@/lib/mockData";
 
 type PublicListing = {
   id: number;
@@ -15,8 +15,8 @@ type PublicListing = {
   description: string;
   category: string;
   price: string;
-  condition: InventoryCondition;
   grading: GradingCompany;
+  grade: string | null;
   status: InventoryItem["status"];
   vendor: number;
   vendor_name: string;
@@ -29,8 +29,8 @@ function toInventoryItem(listing: PublicListing): InventoryItem {
     category: listing.category,
     title: listing.title,
     price: Number(listing.price),
-    condition: listing.condition,
     grading: listing.grading,
+    grade: listing.grade !== null ? Number(listing.grade) : null,
     status: listing.status,
     description: listing.description,
   };

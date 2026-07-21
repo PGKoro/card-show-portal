@@ -10,11 +10,9 @@ import { PlaceholderImage } from "@/components/PlaceholderImage";
 import { apiFetch } from "@/lib/api";
 import { useCategories } from "@/lib/CategoriesContext";
 import {
-  CONDITION_LABELS,
   GRADING_LABELS,
   STATUS_LABELS,
   type GradingCompany,
-  type InventoryCondition,
   type InventoryItem,
 } from "@/lib/mockData";
 
@@ -24,8 +22,8 @@ type PublicListing = {
   description: string;
   category: string;
   price: string;
-  condition: InventoryCondition;
   grading: GradingCompany;
+  grade: string | null;
   status: InventoryItem["status"];
   vendor: number;
   vendor_name: string;
@@ -100,12 +98,13 @@ export default function CardDetailPage() {
             </p>
 
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
-              <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                {CONDITION_LABELS[listing.condition]}
-              </span>
-              {listing.grading && listing.grading !== "ungraded" && (
+              {listing.grading !== "ungraded" && listing.grade !== null ? (
                 <span className="rounded-full bg-brand-blue/10 px-2.5 py-0.5 text-xs font-medium text-brand-blue">
-                  {GRADING_LABELS[listing.grading]}
+                  {GRADING_LABELS[listing.grading]} {listing.grade}
+                </span>
+              ) : (
+                <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                  Ungraded
                 </span>
               )}
               <span

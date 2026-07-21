@@ -9,7 +9,7 @@ import { InventoryCard } from "@/components/InventoryCard";
 import { MessageVendorPanel } from "@/components/MessageVendorPanel";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import { useCategories } from "@/lib/CategoriesContext";
-import { type GradingCompany, type InventoryCondition, type InventoryItem } from "@/lib/mockData";
+import { type GradingCompany, type InventoryItem } from "@/lib/mockData";
 
 type PublicVendor = {
   pk: number;
@@ -25,8 +25,8 @@ type Listing = {
   description: string;
   category: string;
   price: string;
-  condition: InventoryCondition;
   grading: GradingCompany;
+  grade: string | null;
   status: InventoryItem["status"];
 };
 
@@ -37,8 +37,8 @@ function toInventoryItem(listing: Listing): InventoryItem {
     category: listing.category,
     title: listing.title,
     price: Number(listing.price),
-    condition: listing.condition,
     grading: listing.grading,
+    grade: listing.grade !== null ? Number(listing.grade) : null,
     status: listing.status,
     description: listing.description,
   };

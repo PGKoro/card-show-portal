@@ -9,13 +9,6 @@ class Listing(models.Model):
     still pending_review can't create these yet.
     """
 
-    class Condition(models.TextChoices):
-        MINT = "mint", "Mint"
-        NEAR_MINT = "near-mint", "Near Mint"
-        EXCELLENT = "excellent", "Excellent"
-        GOOD = "good", "Good"
-        FAIR = "fair", "Fair"
-
     class Grading(models.TextChoices):
         UNGRADED = "ungraded", "Ungraded"
         PSA = "psa", "PSA"
@@ -40,8 +33,13 @@ class Listing(models.Model):
     # without a migration.
     category = models.CharField(max_length=20)
     price = models.DecimalField(max_digits=10, decimal_places=2)
-    condition = models.CharField(max_length=20, choices=Condition.choices)
     grading = models.CharField(max_length=20, choices=Grading.choices, default=Grading.UNGRADED)
+    # The actual numeric grade a grading company assigned (e.g. 9.5, 10) —
+    # standard 1-10 scale with half-point increments. Only meaningful once
+    # `grading` names a real company; null/blank while ungraded (see
+    # ListingSerializer.validate for the "exactly one of grading vs grade"
+    # pairing rule).
+    grade = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
     created_at = models.DateTimeField(auto_now_add=True)
 

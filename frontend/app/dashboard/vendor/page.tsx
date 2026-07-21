@@ -9,15 +9,8 @@ import { getApiErrorMessage, apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { getAccessToken } from "@/lib/auth";
 import { useCategories } from "@/lib/CategoriesContext";
-import {
-  CONDITION_LABELS,
-  GRADING_LABELS,
-  type GradingCompany,
-  type InventoryCondition,
-  type InventoryItem,
-} from "@/lib/mockData";
+import { GRADE_VALUES, GRADING_LABELS, type GradingCompany, type InventoryItem } from "@/lib/mockData";
 
-const CONDITIONS = Object.keys(CONDITION_LABELS) as InventoryCondition[];
 const GRADINGS = Object.keys(GRADING_LABELS) as GradingCompany[];
 
 type Listing = {
@@ -26,8 +19,8 @@ type Listing = {
   description: string;
   category: string;
   price: string;
-  condition: InventoryCondition;
   grading: GradingCompany;
+  grade: string | null;
   status: InventoryItem["status"];
   created_at: string;
 };
@@ -39,8 +32,8 @@ function toInventoryItem(listing: Listing): InventoryItem {
     category: listing.category,
     title: listing.title,
     price: Number(listing.price),
-    condition: listing.condition,
     grading: listing.grading,
+    grade: listing.grade !== null ? Number(listing.grade) : null,
     status: listing.status,
     description: listing.description,
   };
@@ -58,8 +51,8 @@ export default function VendorDashboardPage() {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
   const [price, setPrice] = useState("");
-  const [condition, setCondition] = useState<InventoryCondition>("near-mint");
   const [grading, setGrading] = useState<GradingCompany>("ungraded");
+  const [grade, setGrade] = useState(GRADE_VALUES[0]);
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -99,8 +92,8 @@ export default function VendorDashboardPage() {
           title,
           category: effectiveCategory,
           price: price || "0",
-          condition,
           grading,
+          grade: grading === "ungraded" ? null : grade,
           description,
         },
       });
@@ -110,6 +103,7 @@ export default function VendorDashboardPage() {
       setTitle("");
       setPrice("");
       setGrading("ungraded");
+      setGrade(GRADE_VALUES[0]);
       setDescription("");
     } catch (err) {
       setError(getApiErrorMessage(err, "Could not add item. Please try again."));
@@ -213,24 +207,6 @@ export default function VendorDashboardPage() {
             </div>
 
             <div>
-              <label htmlFor="condition" className="block text-sm font-medium">
-                Condition
-              </label>
-              <select
-                id="condition"
-                value={condition}
-                onChange={(e) => setCondition(e.target.value as InventoryCondition)}
-                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-              >
-                {CONDITIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {CONDITION_LABELS[c]}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
               <label htmlFor="grading" className="block text-sm font-medium">
                 Grading
               </label>
@@ -247,6 +223,26 @@ export default function VendorDashboardPage() {
                 ))}
               </select>
             </div>
+
+            {grading !== "ungraded" && (
+              <div>
+                <label htmlFor="grade" className="block text-sm font-medium">
+                  Grade
+                </label>
+                <select
+                  id="grade"
+                  value={grade}
+                  onChange={(e) => setGrade(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
+                >
+                  {GRADE_VALUES.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label htmlFor="price" className="block text-sm font-medium">

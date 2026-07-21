@@ -10,7 +10,7 @@ import { ShowCard } from "@/components/ShowCard";
 import { VendorCard, type PublicVendor } from "@/components/VendorCard";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import type { ShowEvent } from "@/lib/events";
-import { type GradingCompany, type InventoryCondition, type InventoryItem } from "@/lib/mockData";
+import { type GradingCompany, type InventoryItem } from "@/lib/mockData";
 
 const HERO_IMAGES = ["/cardshow1.webp", "/cardshow2.avif", "/cardshow3.jpeg"];
 
@@ -20,8 +20,8 @@ type PublicListing = {
   description: string;
   category: string;
   price: string;
-  condition: InventoryCondition;
   grading: GradingCompany;
+  grade: string | null;
   status: InventoryItem["status"];
   vendor: number;
   vendor_name: string;
@@ -34,8 +34,8 @@ function toInventoryItem(listing: PublicListing): InventoryItem {
     category: listing.category,
     title: listing.title,
     price: Number(listing.price),
-    condition: listing.condition,
     grading: listing.grading,
+    grade: listing.grade !== null ? Number(listing.grade) : null,
     status: listing.status,
     description: listing.description,
   };

@@ -1,21 +1,16 @@
-// Shared condition/grading vocabulary — mirrors the choices defined on the
-// backend (apps.listings.models.Listing) so the frontend has matching
-// types/labels without re-fetching them. Category is *not* here — it's a
-// live, admin-managed list fetched via lib/CategoriesContext instead of a
-// fixed enum. No fake data lives here; real vendors/listings come from the
-// API (see lib/api.ts).
-
-export type InventoryCondition = "mint" | "near-mint" | "excellent" | "good" | "fair";
-
-export const CONDITION_LABELS: Record<InventoryCondition, string> = {
-  mint: "Mint",
-  "near-mint": "Near Mint",
-  excellent: "Excellent",
-  good: "Good",
-  fair: "Fair",
-};
+// Shared grading vocabulary — mirrors the choices defined on the backend
+// (apps.listings.models.Listing) so the frontend has matching types/labels
+// without re-fetching them. Category is *not* here — it's a live,
+// admin-managed list fetched via lib/CategoriesContext instead of a fixed
+// enum. No fake data lives here; real vendors/listings come from the API
+// (see lib/api.ts).
 
 export type GradingCompany = "ungraded" | "psa" | "bgs" | "sgc" | "cgc" | "other";
+
+// Standard 1-10 grading scale in half-point increments (PSA/BGS/SGC/CGC all
+// use this), offered highest-first to match how graded cards are usually
+// listed.
+export const GRADE_VALUES: string[] = Array.from({ length: 19 }, (_, i) => (10 - i * 0.5).toFixed(1));
 
 export const GRADING_LABELS: Record<GradingCompany, string> = {
   ungraded: "Ungraded",
@@ -40,8 +35,10 @@ export type InventoryItem = {
   category: string;
   title: string;
   price: number;
-  condition: InventoryCondition;
-  grading?: GradingCompany;
+  grading: GradingCompany;
+  /** The numeric grade (e.g. 9.5, 10) a grading company assigned — null
+   *  while ungraded. */
+  grade: number | null;
   status: InventoryStatus;
   description: string;
 };

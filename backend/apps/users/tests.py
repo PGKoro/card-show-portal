@@ -352,7 +352,7 @@ class VendorApprovalFlowTests(APITestCase):
         access = self.access_for("pendingvendor@example.com", "s3cret!23")
         response = self.client.post(
             "/api/v1/listings/",
-            {"title": "Card", "category": "vintage", "price": "10.00", "condition": "mint"},
+            {"title": "Card", "category": "vintage", "price": "10.00"},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
@@ -371,7 +371,7 @@ class VendorApprovalFlowTests(APITestCase):
         access = self.access_for("cust@example.com", "s3cret!23")
         response = self.client.post(
             "/api/v1/listings/",
-            {"title": "Card", "category": "vintage", "price": "10.00", "condition": "mint"},
+            {"title": "Card", "category": "vintage", "price": "10.00"},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
@@ -397,7 +397,7 @@ class VendorApprovalFlowTests(APITestCase):
         vendor_access = self.access_for("pendingvendor@example.com", "s3cret!23")
         create = self.client.post(
             "/api/v1/listings/",
-            {"title": "Card", "category": "vintage", "price": "10.00", "condition": "mint"},
+            {"title": "Card", "category": "vintage", "price": "10.00"},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {vendor_access}",
         )
