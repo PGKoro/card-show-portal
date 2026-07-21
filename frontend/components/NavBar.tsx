@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { CardStackLogo } from "@/components/CardStackLogo";
 import { useAuth } from "@/lib/AuthContext";
 import { dashboardPathForRole } from "@/lib/auth";
+import { CARDS_FEATURE_ENABLED } from "@/lib/features";
 
 const HEADER_HIDDEN_ON = ["/login", "/signup"];
 
@@ -26,6 +27,23 @@ export function NavBar() {
     return null;
   }
 
+  // An archived account is redirected to /account-archived from every page
+  // (see ArchivedAccountGuard) — none of the normal nav links would ever
+  // resolve for it, so skip rendering them entirely instead of letting the
+  // user click through to something that just bounces them back.
+  if (user?.archived) {
+    return (
+      <header className="border-b border-gray-200 bg-white">
+        <nav className="mx-auto flex min-h-[69px] max-w-6xl items-center px-6 py-2">
+          <span className="flex items-center gap-2 text-lg font-bold tracking-tight text-brand-navy">
+            <CardStackLogo />
+            Collectors Village
+          </span>
+        </nav>
+      </header>
+    );
+  }
+
   const initials = user
     ? (user.first_name?.[0] ?? user.email[0]).toUpperCase() + (user.last_name?.[0] ?? "").toUpperCase()
     : "";
@@ -42,9 +60,11 @@ export function NavBar() {
           <Link href="/vendors" className="hover:text-gray-900">
             Browse Vendors
           </Link>
-          <Link href="/cards" className="hover:text-gray-900">
-            Browse Cards
-          </Link>
+          {CARDS_FEATURE_ENABLED && (
+            <Link href="/cards" className="hover:text-gray-900">
+              Browse Cards
+            </Link>
+          )}
           <Link href="/events" className="hover:text-gray-900">
             Browse Events
           </Link>
