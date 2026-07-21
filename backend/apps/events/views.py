@@ -28,10 +28,10 @@ from .services import create_loyalty_holds
 
 class EventListCreateView(generics.ListCreateAPIView):
     """
-    GET /api/v1/events/ — public, every event (frontend splits
-    upcoming/past by `status`). Supports ?search= (name/venue/city),
-    used by the admin "Manage Events" tool — the public browse pages don't
-    pass it. POST — admin-only, create a new event.
+    GET /api/v1/events/ — public, every event. Supports ?search=
+    (name/venue/city) and ?status=upcoming|past so the admin "Manage
+    Events" page can split upcoming and completed events cleanly.
+    POST — admin-only, create a new event.
     """
 
     serializer_class = EventSerializer
@@ -39,10 +39,25 @@ class EventListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         queryset = Event.objects.all()
         search = self.request.query_params.get("search", "").strip()
+        status = self.request.query_params.get("status", "").strip()
         if search:
             queryset = queryset.filter(
                 Q(name__icontains=search) | Q(venue__icontains=search) | Q(city__icontains=search)
             )
+        if status in {"upcoming", "past", "archived"}:
+            today = timezone.localdate()
+            if status == "upcoming":
+                queryset = queryset.filter(archived=False).filter(
+                    Q(end_date__isnull=True, start_date__gte=today)
+                    | Q(end_date__gte=today)
+                )
+            elif status == "past":
+                queryset = queryset.filter(archived=False).filter(
+                    Q(end_date__isnull=True, start_date__lt=today)
+                    | Q(end_date__lt=today)
+                )
+            else:
+                queryset = queryset.filter(archived=True)
         return queryset
 
     def get_permissions(self):
