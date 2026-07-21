@@ -31,6 +31,7 @@ export type CurrentUser = {
   location: string;
   category_tags: string[];
   vendor_status: "pending_review" | "approved" | "rejected" | null;
+  archived: boolean;
   date_joined: string;
 };
 

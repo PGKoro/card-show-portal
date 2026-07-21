@@ -52,6 +52,13 @@ class User(AbstractUser):
         max_length=20, choices=VendorStatus.choices, null=True, blank=True
     )
 
+    # Admin-driven "soft disable" — deliberately separate from is_active
+    # (which Django's auth backends use to block login outright). An
+    # archived account can still log in, but every role-gated permission
+    # (see apps.core.permissions.HasRole) rejects it, and the frontend
+    # redirects it to a "contact support" page instead of any real page.
+    archived = models.BooleanField(default=False)
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 

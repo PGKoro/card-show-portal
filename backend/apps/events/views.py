@@ -79,7 +79,7 @@ class EventListCreateView(generics.ListCreateAPIView):
         return [AllowAny()]
 
 
-class EventDetailView(generics.RetrieveUpdateAPIView):
+class EventDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     GET /api/v1/events/<id>/ — public, unless the event is archived: an
     archived event 404s for anyone but an admin, same as a nonexistent
@@ -88,13 +88,18 @@ class EventDetailView(generics.RetrieveUpdateAPIView):
     event gets un-archived); this is also how the floor map's visibility
     toggles, venue link, and loyalty deadline are set (all normal fields
     on EventSerializer).
+    DELETE — admin-only, permanently removes the event. Booth
+    registrations for it cascade-delete (BoothRegistration.event is
+    on_delete=CASCADE) since they're meaningless without the event; the
+    venue and its booths are untouched (Booth/Venue don't belong to a
+    single event).
     """
 
     queryset = Event.objects.all()
     serializer_class = EventSerializer
 
     def get_permissions(self):
-        if self.request.method in ("PATCH", "PUT"):
+        if self.request.method in ("PATCH", "PUT", "DELETE"):
             return [IsAuthenticated(), IsAdminRole()]
         return [AllowAny()]
 

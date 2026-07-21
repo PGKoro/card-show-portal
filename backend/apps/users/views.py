@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,6 +16,7 @@ from apps.core.permissions import IsAdminRole
 
 from .models import User
 from .serializers import (
+    AdminCreateUserSerializer,
     OnboardingBasicSerializer,
     OnboardingDetailsSerializer,
     ProfileSerializer,
@@ -150,17 +152,85 @@ class AdminUserSearchView(generics.ListAPIView):
         return queryset
 
 
-class AdminUserDetailView(generics.RetrieveAPIView):
+class AdminUserDetailView(generics.RetrieveDestroyAPIView):
     """
     GET /api/v1/admin/users/<id>/ — full submitted profile for one user
     (used by the "view details" link on a pending vendor approval).
     UserDetailsSerializer never includes password, so there's nothing to
     exclude there.
+
+    DELETE — permanently removes the account, backing "Manage Accounts"'
+    delete action. Cascades to their own listings (Listing.vendor is
+    on_delete=CASCADE); any booth registrations just lose the vendor link
+    (on_delete=SET_NULL), same as the existing "unlinked vendor" case.
+    An admin can't delete their own account this way — that'd have to go
+    through a different account first.
     """
 
     permission_classes = [IsAdminRole]
     serializer_class = UserDetailsSerializer
     queryset = User.objects.all()
+
+    def perform_destroy(self, instance):
+        if instance.pk == self.request.user.pk:
+            raise ValidationError("You can't delete your own account.")
+        instance.delete()
+
+
+class ArchiveUserView(APIView):
+    """
+    POST /api/v1/admin/users/<id>/archive/ — soft-disables an account
+    without deleting it. Deliberately doesn't touch is_active (Django's
+    auth backends would then refuse login outright) — an archived account
+    can still log in, but apps.core.permissions.HasRole rejects every
+    role-gated action for it, it drops out of public vendor/listing
+    browsing (see PublicVendorListView/DetailView, PublicListingListView),
+    and the frontend redirects it to a "contact support" page instead of
+    any real page. Reversible via RestoreUserView below. An admin can't
+    archive their own account (self-lockout guard).
+    """
+
+    permission_classes = [IsAdminRole]
+
+    def post(self, request, pk):
+        user = get_object_or_404(User, pk=pk)
+        if user.pk == request.user.pk:
+            return Response(
+                {"detail": "You can't archive your own account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.archived = True
+        user.save(update_fields=["archived"])
+        return Response(UserDetailsSerializer(user).data)
+
+
+class RestoreUserView(APIView):
+    """POST /api/v1/admin/users/<id>/restore/ — reverses ArchiveUserView."""
+
+    permission_classes = [IsAdminRole]
+
+    def post(self, request, pk):
+        user = get_object_or_404(User, pk=pk)
+        user.archived = False
+        user.save(update_fields=["archived"])
+        return Response(UserDetailsSerializer(user).data)
+
+
+class AdminCreateUserView(generics.CreateAPIView):
+    """
+    POST /api/v1/admin/users/create/ — backs the "Account Creator" tool
+    (an admin directly provisioning a customer/vendor account instead of
+    the person going through public signup + onboarding themselves).
+    """
+
+    permission_classes = [IsAdminRole]
+    serializer_class = AdminCreateUserSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(UserDetailsSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
 class SetUserRoleView(APIView):
@@ -265,7 +335,7 @@ class PublicVendorDetailView(generics.RetrieveAPIView):
 
     permission_classes = [AllowAny]
     serializer_class = PublicVendorSerializer
-    queryset = User.objects.filter(role=User.Role.VENDOR)
+    queryset = User.objects.filter(role=User.Role.VENDOR, archived=False)
 
 
 class PublicVendorListView(generics.ListAPIView):
@@ -275,7 +345,9 @@ class PublicVendorListView(generics.ListAPIView):
     PublicVendorDetailView, this only surfaces *approved* vendors — a
     pending/rejected vendor shouldn't show up in public browsing before an
     admin has cleared them, even though the map still needs to show anyone
-    physically assigned a booth regardless of status.
+    physically assigned a booth regardless of status. Archived accounts are
+    excluded from both views regardless of approval status — see
+    ArchiveUserView.
     """
 
     permission_classes = [AllowAny]
@@ -283,7 +355,9 @@ class PublicVendorListView(generics.ListAPIView):
 
     def get_queryset(self):
         queryset = User.objects.filter(
-            role=User.Role.VENDOR, vendor_status=User.VendorStatus.APPROVED
+            role=User.Role.VENDOR,
+            vendor_status=User.VendorStatus.APPROVED,
+            archived=False,
         )
         search = self.request.query_params.get("search", "").strip()
         if search:

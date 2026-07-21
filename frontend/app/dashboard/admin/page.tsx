@@ -54,14 +54,25 @@ const ADMIN_SECTIONS: { title: string; tools: AdminTool[] }[] = [
     ],
   },
   {
-    title: "Website",
+    title: "Accounts",
     tools: [
       {
-        href: "/dashboard/admin/manage-roles",
-        title: "Manage Roles",
-        description: "Search for a user and switch their role.",
+        href: "/dashboard/admin/manage-accounts",
+        title: "Manage Accounts",
+        description: "Search for a user to change their role, archive/restore, or delete it.",
         countKey: null,
       },
+      {
+        href: "/dashboard/admin/accounts/new",
+        title: "Account Creator",
+        description: "Create a customer or vendor account directly.",
+        countKey: null,
+      },
+    ],
+  },
+  {
+    title: "Website",
+    tools: [
       {
         href: "/dashboard/admin/categories",
         title: "Manage Categories",

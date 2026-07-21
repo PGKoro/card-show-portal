@@ -726,3 +726,259 @@ class PublicVendorListTests(APITestCase):
     def test_404_for_unknown_pk(self):
         response = self.client.get("/api/v1/vendors/999999/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_archived_vendor_excluded_from_list_and_detail(self):
+        self.approved.archived = True
+        self.approved.save(update_fields=["archived"])
+        response = self.client.get("/api/v1/vendors/")
+        self.assertEqual(response.data["results"], [])
+        response = self.client.get(f"/api/v1/vendors/{self.approved.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class AdminAccountManagementTests(APITestCase):
+    """
+    Covers the "Manage Accounts"/"Account Creator" admin tools: an admin
+    archiving/restoring/deleting any account, and directly provisioning a
+    new customer/vendor account.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(email="acct-admin@example.com", password="s3cret!23")
+        self.other_admin = User.objects.create_superuser(
+            email="acct-admin2@example.com", password="s3cret!23"
+        )
+        self.customer = User.objects.create_user(
+            email="acct-cust@example.com", password="s3cret!23"
+        )
+        login = self.client.post(
+            "/api/v1/auth/login/", {"email": "acct-admin@example.com", "password": "s3cret!23"}
+        )
+        self.admin_access = login.data["access"]
+
+    def _auth(self, token=None):
+        return {"HTTP_AUTHORIZATION": f"Bearer {token or self.admin_access}"}
+
+    # -- archive --
+
+    def test_admin_can_archive_another_account(self):
+        response = self.client.post(
+            f"/api/v1/admin/users/{self.customer.pk}/archive/", **self._auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.customer.refresh_from_db()
+        self.assertTrue(self.customer.archived)
+
+    def test_archived_account_can_still_log_in(self):
+        # Archiving is a soft-disable, not a lockout — an archived account
+        # can still authenticate; the frontend redirects it to a "contact
+        # support" page, and apps.core.permissions.HasRole blocks it from
+        # any role-gated action (see test_archived_vendor_cannot_create_listing).
+        self.client.post(f"/api/v1/admin/users/{self.customer.pk}/archive/", **self._auth())
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "acct-cust@example.com", "password": "s3cret!23"},
+        )
+        self.assertEqual(login.status_code, status.HTTP_200_OK)
+
+        me = self.client.get(
+            "/api/v1/auth/user/", HTTP_AUTHORIZATION=f"Bearer {login.data['access']}"
+        )
+        self.assertTrue(me.data["archived"])
+
+    def test_archived_vendor_cannot_create_listing(self):
+        vendor = User.objects.create_user(
+            email="acct-archived-vendor@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Archived Vendor Co",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        self.client.post(f"/api/v1/admin/users/{vendor.pk}/archive/", **self._auth())
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "acct-archived-vendor@example.com", "password": "s3cret!23"},
+        )
+        response = self.client.post(
+            "/api/v1/listings/",
+            {
+                "title": "Test card",
+                "description": "",
+                "category": "vintage",
+                "price": "10.00",
+                "grading": "ungraded",
+            },
+            format="json",
+            **self._auth(login.data["access"]),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_cannot_archive_own_account(self):
+        response = self.client.post(f"/api/v1/admin/users/{self.admin.pk}/archive/", **self._auth())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.admin.refresh_from_db()
+        self.assertFalse(self.admin.archived)
+
+    def test_non_admin_cannot_archive(self):
+        login = self.client.post(
+            "/api/v1/auth/login/", {"email": "acct-cust@example.com", "password": "s3cret!23"}
+        )
+        response = self.client.post(
+            f"/api/v1/admin/users/{self.other_admin.pk}/archive/",
+            **self._auth(login.data["access"]),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # -- restore --
+
+    def test_admin_can_restore_archived_account(self):
+        self.customer.archived = True
+        self.customer.save(update_fields=["archived"])
+        response = self.client.post(
+            f"/api/v1/admin/users/{self.customer.pk}/restore/", **self._auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.customer.refresh_from_db()
+        self.assertFalse(self.customer.archived)
+
+    # -- delete --
+
+    def test_admin_can_delete_another_account(self):
+        response = self.client.delete(
+            f"/api/v1/admin/users/{self.customer.pk}/", **self._auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(User.objects.filter(pk=self.customer.pk).exists())
+
+    def test_admin_cannot_delete_own_account(self):
+        response = self.client.delete(f"/api/v1/admin/users/{self.admin.pk}/", **self._auth())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(User.objects.filter(pk=self.admin.pk).exists())
+
+    def test_non_admin_cannot_delete(self):
+        login = self.client.post(
+            "/api/v1/auth/login/", {"email": "acct-cust@example.com", "password": "s3cret!23"}
+        )
+        response = self.client.delete(
+            f"/api/v1/admin/users/{self.other_admin.pk}/",
+            **self._auth(login.data["access"]),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_deleting_vendor_cascades_their_listings(self):
+        vendor = User.objects.create_user(
+            email="acct-vendor@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Acct Vendor Co",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        Listing.objects.create(
+            vendor=vendor,
+            title="Test card",
+            description="",
+            category="vintage",
+            price="10.00",
+            grading="ungraded",
+        )
+        self.client.delete(f"/api/v1/admin/users/{vendor.pk}/", **self._auth())
+        self.assertEqual(Listing.objects.filter(vendor_id=vendor.pk).count(), 0)
+
+    # -- create --
+
+    def test_admin_can_create_customer_account(self):
+        response = self.client.post(
+            "/api/v1/admin/users/create/",
+            {
+                "email": "created-cust@example.com",
+                "password": "s3cret!23",
+                "first_name": "Cam",
+                "role": "customer",
+            },
+            **self._auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="created-cust@example.com")
+        self.assertEqual(user.role, User.Role.CUSTOMER)
+        self.assertTrue(user.onboarding_completed)
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "created-cust@example.com", "password": "s3cret!23"},
+        )
+        self.assertEqual(login.status_code, status.HTTP_200_OK)
+
+    def test_admin_can_create_vendor_account_auto_approved(self):
+        response = self.client.post(
+            "/api/v1/admin/users/create/",
+            {
+                "email": "created-vendor@example.com",
+                "password": "s3cret!23",
+                "first_name": "Val",
+                "role": "vendor",
+                "business_name": "Val's Cards",
+                "category_tags": ["vintage"],
+            },
+            **self._auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="created-vendor@example.com")
+        self.assertEqual(user.vendor_status, User.VendorStatus.APPROVED)
+        self.assertTrue(user.onboarding_completed)
+
+    def test_create_vendor_requires_business_name(self):
+        response = self.client.post(
+            "/api/v1/admin/users/create/",
+            {
+                "email": "no-biz@example.com",
+                "password": "s3cret!23",
+                "first_name": "No",
+                "role": "vendor",
+            },
+            **self._auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("business_name", response.data)
+
+    def test_create_rejects_duplicate_email(self):
+        response = self.client.post(
+            "/api/v1/admin/users/create/",
+            {
+                "email": "acct-cust@example.com",
+                "password": "s3cret!23",
+                "first_name": "Dup",
+                "role": "customer",
+            },
+            **self._auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data)
+
+    def test_create_rejects_weak_password(self):
+        response = self.client.post(
+            "/api/v1/admin/users/create/",
+            {
+                "email": "weak-pw@example.com",
+                "password": "123",
+                "first_name": "Weak",
+                "role": "customer",
+            },
+            **self._auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("password", response.data)
+
+    def test_non_admin_cannot_create_account(self):
+        login = self.client.post(
+            "/api/v1/auth/login/", {"email": "acct-cust@example.com", "password": "s3cret!23"}
+        )
+        response = self.client.post(
+            "/api/v1/admin/users/create/",
+            {
+                "email": "blocked@example.com",
+                "password": "s3cret!23",
+                "first_name": "No",
+                "role": "customer",
+            },
+            **self._auth(login.data["access"]),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

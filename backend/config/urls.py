@@ -10,9 +10,11 @@ from apps.core.views import (
 )
 from apps.listings.views import PublicVendorListingsView
 from apps.users.views import (
+    AdminCreateUserView,
     AdminUserDetailView,
     AdminUserSearchView,
     ApproveVendorView,
+    ArchiveUserView,
     GoogleLoginView,
     MicrosoftLoginView,
     OnboardingDetailsView,
@@ -22,6 +24,7 @@ from apps.users.views import (
     PublicVendorDetailView,
     PublicVendorListView,
     RejectVendorView,
+    RestoreUserView,
     SetUserRoleView,
     ThrottledLoginView,
     ThrottledPasswordResetView,
@@ -97,13 +100,29 @@ urlpatterns = [
         AdminCategoryDetailView.as_view(),
         name="admin-category-detail",
     ),
-    # Admin user management (search + change a user's role).
+    # Admin user management (search + change a user's role + create/archive/
+    # restore/delete accounts directly).
     path("api/v1/admin/users/", AdminUserSearchView.as_view(), name="admin-user-search"),
+    path(
+        "api/v1/admin/users/create/",
+        AdminCreateUserView.as_view(),
+        name="admin-user-create",
+    ),
     path("api/v1/admin/users/<int:pk>/", AdminUserDetailView.as_view(), name="admin-user-detail"),
     path(
         "api/v1/admin/users/<int:pk>/set-role/",
         SetUserRoleView.as_view(),
         name="set-user-role",
+    ),
+    path(
+        "api/v1/admin/users/<int:pk>/archive/",
+        ArchiveUserView.as_view(),
+        name="archive-user",
+    ),
+    path(
+        "api/v1/admin/users/<int:pk>/restore/",
+        RestoreUserView.as_view(),
+        name="restore-user",
     ),
     # Public vendor directory — approved vendors only (backs /vendors and
     # the homepage's "Featured vendors").

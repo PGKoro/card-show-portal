@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 
+import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { Pagination } from "@/components/Pagination";
 import { Spinner } from "@/components/Spinner";
-import { ApiError, apiFetch, type PaginatedResponse } from "@/lib/api";
+import { ApiError, getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 import { formatEventDateRange, type ShowEvent } from "@/lib/events";
 
@@ -38,7 +39,9 @@ const TAB_META: Record<EventTab, TabMeta> = {
 };
 
 export default function AdminEventsPage() {
+  const confirm = useConfirm();
   const [search, setSearch] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [activeTab, setActiveTab] = useState<EventTab>("upcoming");
   const [upcomingEvents, setUpcomingEvents] = useState<ShowEvent[]>([]);
@@ -128,6 +131,33 @@ export default function AdminEventsPage() {
         : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
     }`;
 
+  async function handleDelete(event: ShowEvent, e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDeleteError(null);
+
+    const ok = await confirm({
+      title: `Permanently delete "${event.name}"?`,
+      message: "This can't be undone. Any booth registrations for this event will be removed too.",
+      confirmLabel: "Delete event",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    try {
+      await apiFetch(`/events/${event.id}/`, {
+        method: "DELETE",
+        accessToken: getAccessToken() ?? undefined,
+      });
+      setUpcomingEvents((current) => current.filter((item) => item.id !== event.id));
+      setCompletedEvents((current) => current.filter((item) => item.id !== event.id));
+      setArchivedEvents((current) => current.filter((item) => item.id !== event.id));
+      if (event.archived) setArchivedCount((current) => Math.max(0, current - 1));
+    } catch (error) {
+      setDeleteError(getApiErrorMessage(error, `Could not delete "${event.name}".`));
+    }
+  }
+
   return (
     <main className="flex-1 px-6 py-12">
       <div className="mx-auto max-w-5xl">
@@ -189,6 +219,12 @@ export default function AdminEventsPage() {
             </p>
           )}
         </div>
+
+        {deleteError && (
+          <p className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            {deleteError}
+          </p>
+        )}
 
         <input
           type="text"
@@ -306,6 +342,13 @@ export default function AdminEventsPage() {
                       Restore
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={(e) => handleDelete(event, e)}
+                    className="rounded-md border border-red-600 bg-red-600 px-2.5 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-red-700"
+                  >
+                    Delete
+                  </button>
                   <span className="text-sm text-gray-400">→</span>
                 </div>
               </Link>
