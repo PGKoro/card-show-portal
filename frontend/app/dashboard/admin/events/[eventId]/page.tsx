@@ -154,7 +154,7 @@ export default function EditEventPage() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<ShowEvent>(`/events/${params.eventId}/`)
+    apiFetch<ShowEvent>(`/events/${params.eventId}/`, { accessToken: getAccessToken() ?? undefined })
       .then((data) => {
         if (!cancelled) setEvent(data);
       })

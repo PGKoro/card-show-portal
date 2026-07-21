@@ -26,11 +26,19 @@ from .serializers import (
 from .services import create_loyalty_holds
 
 
+def _is_admin(user):
+    return user.is_authenticated and (user.is_superuser or user.role == User.Role.ADMIN)
+
+
 class EventListCreateView(generics.ListCreateAPIView):
     """
-    GET /api/v1/events/ — public, every event. Supports ?search=
-    (name/venue/city) and ?status=upcoming|past so the admin "Manage
-    Events" page can split upcoming and completed events cleanly.
+    GET /api/v1/events/ — public, every *non-archived* event by default.
+    Supports ?search= (name/venue/city) and ?status=upcoming|past|archived
+    so the admin "Manage Events" page can split events cleanly — archived
+    ones only ever appear when ?status=archived is explicitly requested
+    (that's the only caller that does), so they stay out of the public
+    site and every vendor-facing list (homepage, /events, "Attend an
+    Event") without those pages needing to know archiving exists.
     POST — admin-only, create a new event.
     """
 
@@ -44,20 +52,25 @@ class EventListCreateView(generics.ListCreateAPIView):
             queryset = queryset.filter(
                 Q(name__icontains=search) | Q(venue__icontains=search) | Q(city__icontains=search)
             )
-        if status in {"upcoming", "past", "archived"}:
+        if status == "archived":
+            # GET is AllowAny so ordinary browsing keeps working without a
+            # token, but archived events themselves are admin-only — a
+            # non-admin explicitly requesting this status just gets an
+            # empty list rather than a peek at what's been archived.
+            if not _is_admin(self.request.user):
+                return Event.objects.none()
+            queryset = queryset.filter(archived=True)
+        else:
+            queryset = queryset.filter(archived=False)
             today = timezone.localdate()
             if status == "upcoming":
-                queryset = queryset.filter(archived=False).filter(
-                    Q(end_date__isnull=True, start_date__gte=today)
-                    | Q(end_date__gte=today)
+                queryset = queryset.filter(
+                    Q(end_date__isnull=True, start_date__gte=today) | Q(end_date__gte=today)
                 )
             elif status == "past":
-                queryset = queryset.filter(archived=False).filter(
-                    Q(end_date__isnull=True, start_date__lt=today)
-                    | Q(end_date__lt=today)
+                queryset = queryset.filter(
+                    Q(end_date__isnull=True, start_date__lt=today) | Q(end_date__lt=today)
                 )
-            else:
-                queryset = queryset.filter(archived=True)
         return queryset
 
     def get_permissions(self):
@@ -68,9 +81,13 @@ class EventListCreateView(generics.ListCreateAPIView):
 
 class EventDetailView(generics.RetrieveUpdateAPIView):
     """
-    GET /api/v1/events/<id>/ — public. PATCH — admin-only; this is also how
-    the floor map's visibility toggles, venue link, and loyalty deadline
-    are set (all normal fields on EventSerializer).
+    GET /api/v1/events/<id>/ — public, unless the event is archived: an
+    archived event 404s for anyone but an admin, same as a nonexistent
+    event, so a stale link/bookmark doesn't leak that it used to exist.
+    PATCH — admin-only regardless of archived state (that's also how an
+    event gets un-archived); this is also how the floor map's visibility
+    toggles, venue link, and loyalty deadline are set (all normal fields
+    on EventSerializer).
     """
 
     queryset = Event.objects.all()
@@ -80,6 +97,12 @@ class EventDetailView(generics.RetrieveUpdateAPIView):
         if self.request.method in ("PATCH", "PUT"):
             return [IsAuthenticated(), IsAdminRole()]
         return [AllowAny()]
+
+    def get_object(self):
+        event = super().get_object()
+        if event.archived and not _is_admin(self.request.user):
+            raise Http404
+        return event
 
     def perform_update(self, serializer):
         event = serializer.save()
@@ -105,11 +128,10 @@ class EventMapView(APIView):
 
     def get(self, request, pk):
         event = get_object_or_404(Event, pk=pk)
-        user = request.user
-        is_admin = user.is_authenticated and (user.is_superuser or user.role == User.Role.ADMIN)
+        is_admin = _is_admin(request.user)
         venue = event.map_venue
         has_map = bool(venue and (venue.map_image or venue.map_image_preset))
-        if not has_map or (not is_admin and not event.map_visible):
+        if not has_map or (not is_admin and (not event.map_visible or event.archived)):
             raise Http404
         return Response(EventMapSerializer(event, context={"request": request}).data)
 
@@ -385,7 +407,7 @@ class VendorEventBoothsView(APIView):
 
     def get(self, request, pk):
         event = get_object_or_404(Event, pk=pk)
-        if not event.map_venue_id or not event.map_visible_to_vendors:
+        if not event.map_venue_id or not event.map_visible_to_vendors or event.archived:
             raise Http404
         venue = event.map_venue
 
@@ -458,7 +480,7 @@ class VendorSelectBoothView(APIView):
 
     def post(self, request, pk, booth_id):
         event = get_object_or_404(Event, pk=pk)
-        if not event.map_venue_id or not event.map_visible_to_vendors:
+        if not event.map_venue_id or not event.map_visible_to_vendors or event.archived:
             raise Http404
         booth = get_object_or_404(Booth, pk=booth_id, venue_id=event.map_venue_id)
 

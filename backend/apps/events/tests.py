@@ -226,6 +226,108 @@ class EventApiTests(APITestCase):
         self.assertIsNone(second_page.data["next"])
         self.assertIsNotNone(second_page.data["previous"])
 
+    def test_archived_event_is_hidden_from_the_default_list(self):
+        archived = Event.objects.create(
+            name="Archived Show",
+            venue="Archive Hall",
+            city="Archive City",
+            start_date=datetime.date.today(),
+            archived=True,
+        )
+        response = self.client.get("/api/v1/events/")
+        names = [e["name"] for e in response.data["results"]]
+        self.assertNotIn(archived.name, names)
+
+    def test_archived_event_is_hidden_from_upcoming_and_past_filters(self):
+        Event.objects.create(
+            name="Archived Upcoming",
+            venue="Archive Hall",
+            city="Archive City",
+            start_date=datetime.date.today() + datetime.timedelta(days=5),
+            archived=True,
+        )
+        Event.objects.create(
+            name="Archived Past",
+            venue="Archive Hall",
+            city="Archive City",
+            start_date=datetime.date.today() - datetime.timedelta(days=5),
+            archived=True,
+        )
+        upcoming = self.client.get("/api/v1/events/?status=upcoming").data["results"]
+        past = self.client.get("/api/v1/events/?status=past").data["results"]
+        self.assertNotIn("Archived Upcoming", [e["name"] for e in upcoming])
+        self.assertNotIn("Archived Past", [e["name"] for e in past])
+
+    def test_anonymous_status_archived_returns_empty(self):
+        Event.objects.create(
+            name="Archived Show",
+            venue="Archive Hall",
+            city="Archive City",
+            start_date=datetime.date.today(),
+            archived=True,
+        )
+        response = self.client.get("/api/v1/events/?status=archived")
+        self.assertEqual(response.data["results"], [])
+
+    def test_admin_can_see_archived_events_via_status_filter(self):
+        archived = Event.objects.create(
+            name="Archived Show",
+            venue="Archive Hall",
+            city="Archive City",
+            start_date=datetime.date.today(),
+            archived=True,
+        )
+        access = self.access_for("events-admin@example.com")
+        response = self.client.get(
+            "/api/v1/events/?status=archived", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        names = [e["name"] for e in response.data["results"]]
+        self.assertEqual(names, [archived.name])
+
+    def test_archived_event_detail_404s_for_anonymous_visitor(self):
+        archived = Event.objects.create(
+            name="Archived Show",
+            venue="Archive Hall",
+            city="Archive City",
+            start_date=datetime.date.today(),
+            archived=True,
+        )
+        response = self.client.get(f"/api/v1/events/{archived.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_archived_event_detail_404s_for_a_non_admin_customer(self):
+        archived = Event.objects.create(
+            name="Archived Show",
+            venue="Archive Hall",
+            city="Archive City",
+            start_date=datetime.date.today(),
+            archived=True,
+        )
+        access = self.access_for("events-cust@example.com")
+        response = self.client.get(
+            f"/api/v1/events/{archived.pk}/", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_admin_can_still_view_and_unarchive_an_archived_event(self):
+        archived = Event.objects.create(
+            name="Archived Show",
+            venue="Archive Hall",
+            city="Archive City",
+            start_date=datetime.date.today(),
+            archived=True,
+        )
+        access = self.access_for("events-admin@example.com")
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {access}"}
+        get_response = self.client.get(f"/api/v1/events/{archived.pk}/", **auth)
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+
+        restore_response = self.client.patch(
+            f"/api/v1/events/{archived.pk}/", {"archived": False}, format="json", **auth
+        )
+        self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(restore_response.data["archived"])
+
 
 class VenueTests(APITestCase):
     """Covers basic Venue CRUD — the reusable floor-plan container."""
@@ -736,6 +838,26 @@ class PublicEventMapTests(APITestCase):
         response = self.client.get(f"/api/v1/events/{self.event.pk}/map/", **self.admin_auth())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_404_when_archived_even_if_otherwise_visible(self):
+        self.venue.map_image_preset = "single_hall"
+        self.venue.save()
+        self.event.map_venue = self.venue
+        self.event.map_visible = True
+        self.event.archived = True
+        self.event.save()
+        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_admin_can_still_view_map_for_an_archived_event(self):
+        self.venue.map_image_preset = "single_hall"
+        self.venue.save()
+        self.event.map_venue = self.venue
+        self.event.map_visible = True
+        self.event.archived = True
+        self.event.save()
+        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/", **self.admin_auth())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_returns_only_confirmed_registrations_with_correct_data(self):
         self.venue.map_image_preset = "single_hall"
         self.venue.save()
@@ -1028,6 +1150,22 @@ class VendorBoothSelectionTests(APITestCase):
         self.event.save()
         response = self.client.get(
             f"/api/v1/events/{self.event.pk}/vendor-booths/", **self.vendor_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_404_when_event_archived_even_if_vendor_visibility_on(self):
+        self.event.archived = True
+        self.event.save()
+        response = self.client.get(
+            f"/api/v1/events/{self.event.pk}/vendor-booths/", **self.vendor_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cannot_select_a_booth_for_an_archived_event(self):
+        self.event.archived = True
+        self.event.save()
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/booths/{self.booth.pk}/select/", **self.vendor_auth()
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 

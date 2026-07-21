@@ -11,7 +11,6 @@ import { formatEventDateRange, type ShowEvent } from "@/lib/events";
 
 const PAGE_SIZE = 5;
 type EventTab = "upcoming" | "completed" | "archived";
-type DemoEvent = Omit<ShowEvent, "archived"> & { archived?: boolean };
 
 type TabMeta = {
   label: string;
@@ -33,333 +32,10 @@ const TAB_META: Record<EventTab, TabMeta> = {
   archived: {
     label: "Archived",
     badge: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-200",
-    description: "These are archived for reference only.",
+    description:
+      "Hidden from the public site and vendors — restore one to bring it back to Upcoming or Completed.",
   },
 };
-
-const DEMO_UPCOMING_EVENTS: DemoEvent[] = [
-  {
-    id: 9001,
-    name: "Spring Card Classic",
-    venue: "Metro Convention Center",
-    city: "Dallas, TX",
-    description: "Demo upcoming event for the admin page.",
-    start_date: "2026-08-14",
-    end_date: "2026-08-15",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 28,
-    estimated_cards: 125000,
-    estimated_attendees: 3100,
-    status: "upcoming",
-    archived: false,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9002,
-    name: "Summer Hobby Showcase",
-    venue: "Civic Expo Hall",
-    city: "Phoenix, AZ",
-    description: "Demo upcoming event for the admin page.",
-    start_date: "2026-09-05",
-    end_date: "2026-09-06",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 35,
-    estimated_cards: 165000,
-    estimated_attendees: 4200,
-    status: "upcoming",
-    archived: false,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9003,
-    name: "Collectors Weekend",
-    venue: "Bayfront Center",
-    city: "Tampa, FL",
-    description: "Demo upcoming event for the admin page.",
-    start_date: "2026-09-19",
-    end_date: "2026-09-20",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 24,
-    estimated_cards: 94000,
-    estimated_attendees: 2600,
-    status: "upcoming",
-    archived: false,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9004,
-    name: "Autumn Sports & TCG Expo",
-    venue: "Grand Arena Hall",
-    city: "Columbus, OH",
-    description: "Demo upcoming event for the admin page.",
-    start_date: "2026-10-03",
-    end_date: "2026-10-04",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 31,
-    estimated_cards: 147000,
-    estimated_attendees: 3900,
-    status: "upcoming",
-    archived: false,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9005,
-    name: "Holiday Card Bash",
-    venue: "Riverfront Expo",
-    city: "Nashville, TN",
-    description: "Demo upcoming event for the admin page.",
-    start_date: "2026-11-21",
-    end_date: "2026-11-22",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 18,
-    estimated_cards: 72000,
-    estimated_attendees: 1800,
-    status: "upcoming",
-    archived: false,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-];
-
-const DEMO_COMPLETED_EVENTS: DemoEvent[] = [
-  {
-    id: 9101,
-    name: "Winter Card Expo",
-    venue: "Lakeside Convention Center",
-    city: "Chicago, IL",
-    description: "Demo completed event for the admin page.",
-    start_date: "2026-01-10",
-    end_date: "2026-01-11",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 42,
-    estimated_cards: 210000,
-    estimated_attendees: 5200,
-    status: "past",
-    archived: false,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9102,
-    name: "New Year Collectors Con",
-    venue: "Harbor Hall",
-    city: "San Diego, CA",
-    description: "Demo completed event for the admin page.",
-    start_date: "2026-02-07",
-    end_date: "2026-02-08",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 36,
-    estimated_cards: 154000,
-    estimated_attendees: 4100,
-    status: "past",
-    archived: false,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9103,
-    name: "Vintage Card Weekend",
-    venue: "Civic Center",
-    city: "Milwaukee, WI",
-    description: "Demo completed event for the admin page.",
-    start_date: "2026-03-15",
-    end_date: "2026-03-16",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 22,
-    estimated_cards: 88000,
-    estimated_attendees: 2300,
-    status: "past",
-    archived: false,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9104,
-    name: "Spring Showcase",
-    venue: "State Fair Expo",
-    city: "Indianapolis, IN",
-    description: "Demo completed event for the admin page.",
-    start_date: "2026-04-12",
-    end_date: "2026-04-13",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 29,
-    estimated_cards: 132000,
-    estimated_attendees: 3400,
-    status: "past",
-    archived: false,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9105,
-    name: "Collectors Invitational",
-    venue: "Downtown Event Hall",
-    city: "Atlanta, GA",
-    description: "Demo completed event for the admin page.",
-    start_date: "2026-05-24",
-    end_date: "2026-05-24",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 26,
-    estimated_cards: 97000,
-    estimated_attendees: 2800,
-    status: "past",
-    archived: false,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-];
-
-const DEMO_ARCHIVED_EVENTS: DemoEvent[] = [
-  {
-    id: 9201,
-    name: "Archived Card Swap 1",
-    venue: "Archive Hall",
-    city: "Orlando, FL",
-    description: "Demo archived event for the admin page.",
-    start_date: "2025-01-18",
-    end_date: "2025-01-18",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 12,
-    estimated_cards: 42000,
-    estimated_attendees: 900,
-    status: "past",
-    archived: true,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9202,
-    name: "Archived Card Swap 2",
-    venue: "Archive Hall",
-    city: "Orlando, FL",
-    description: "Demo archived event for the admin page.",
-    start_date: "2025-02-15",
-    end_date: "2025-02-16",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 14,
-    estimated_cards: 51000,
-    estimated_attendees: 1100,
-    status: "past",
-    archived: true,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9203,
-    name: "Archived Card Swap 3",
-    venue: "Archive Hall",
-    city: "Orlando, FL",
-    description: "Demo archived event for the admin page.",
-    start_date: "2025-03-22",
-    end_date: "2025-03-22",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 11,
-    estimated_cards: 38000,
-    estimated_attendees: 800,
-    status: "past",
-    archived: true,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9204,
-    name: "Archived Card Swap 4",
-    venue: "Archive Hall",
-    city: "Orlando, FL",
-    description: "Demo archived event for the admin page.",
-    start_date: "2025-04-12",
-    end_date: "2025-04-13",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 16,
-    estimated_cards: 58000,
-    estimated_attendees: 1300,
-    status: "past",
-    archived: true,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-  {
-    id: 9205,
-    name: "Archived Card Swap 5",
-    venue: "Archive Hall",
-    city: "Orlando, FL",
-    description: "Demo archived event for the admin page.",
-    start_date: "2025-05-10",
-    end_date: "2025-05-10",
-    vendors: [],
-    vendors_detail: [],
-    vendor_count: 13,
-    estimated_cards: 46000,
-    estimated_attendees: 950,
-    status: "past",
-    archived: true,
-    map_venue: null,
-    map_venue_detail: null,
-    map_visible: false,
-    map_visible_to_vendors: false,
-    loyalty_priority_deadline: null,
-  },
-];
 
 export default function AdminEventsPage() {
   const [search, setSearch] = useState("");
@@ -373,25 +49,25 @@ export default function AdminEventsPage() {
   const [upcomingHasPrevious, setUpcomingHasPrevious] = useState(false);
   const [completedHasNext, setCompletedHasNext] = useState(false);
   const [completedHasPrevious, setCompletedHasPrevious] = useState(false);
+  const [archivedHasNext, setArchivedHasNext] = useState(false);
+  const [archivedHasPrevious, setArchivedHasPrevious] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const activeEvents =
+  const shownEvents =
     activeTab === "upcoming"
       ? upcomingEvents
       : activeTab === "completed"
         ? completedEvents
         : archivedEvents;
-  const demoEvents =
+  const hasNext =
+    activeTab === "upcoming" ? upcomingHasNext : activeTab === "completed" ? completedHasNext : archivedHasNext;
+  const hasPrevious =
     activeTab === "upcoming"
-      ? DEMO_UPCOMING_EVENTS
+      ? upcomingHasPrevious
       : activeTab === "completed"
-        ? DEMO_COMPLETED_EVENTS
-        : DEMO_ARCHIVED_EVENTS;
-  const shownEvents = !search.trim() && !loading && activeEvents.length === 0 ? demoEvents : activeEvents;
-  const hasNext = activeTab === "upcoming" ? upcomingHasNext : completedHasNext;
-  const hasPrevious = activeTab === "upcoming" ? upcomingHasPrevious : completedHasPrevious;
+        ? completedHasPrevious
+        : archivedHasPrevious;
   const tabMeta = TAB_META[activeTab];
-  const tabCount = activeTab === "upcoming" ? upcomingEvents.length : activeTab === "completed" ? completedEvents.length : archivedCount;
 
   useEffect(() => {
     let cancelled = false;
@@ -424,6 +100,8 @@ export default function AdminEventsPage() {
           setCompletedHasPrevious(completedData.previous !== null);
           setArchivedEvents(archivedData.results);
           setArchivedCount(archivedData.count);
+          setArchivedHasNext(archivedData.next !== null);
+          setArchivedHasPrevious(archivedData.previous !== null);
         })
         .catch((err) => {
           if (cancelled) return;
@@ -485,10 +163,10 @@ export default function AdminEventsPage() {
 
         <div className="mb-4 flex flex-wrap gap-2 border-b border-gray-200 pb-3 dark:border-gray-800">
           <button type="button" onClick={() => setActiveTab("upcoming")} className={tabButtonClass("upcoming")}>
-            Upcoming ({upcomingEvents.length || DEMO_UPCOMING_EVENTS.length})
+            Upcoming ({upcomingEvents.length})
           </button>
           <button type="button" onClick={() => setActiveTab("completed")} className={tabButtonClass("completed")}>
-            Completed ({completedEvents.length || DEMO_COMPLETED_EVENTS.length})
+            Completed ({completedEvents.length})
           </button>
           <button type="button" onClick={() => setActiveTab("archived")} className={tabButtonClass("archived")}>
             Archived ({archivedCount})
@@ -635,19 +313,13 @@ export default function AdminEventsPage() {
           </div>
         )}
 
-        {activeTab === "archived" ? (
-          <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-            Archived events are currently read-only examples.
-          </p>
-        ) : (
-          <Pagination
-            page={page}
-            hasNext={hasNext}
-            hasPrevious={hasPrevious}
-            onPrevious={() => setPage((current) => current - 1)}
-            onNext={() => setPage((current) => current + 1)}
-          />
-        )}
+        <Pagination
+          page={page}
+          hasNext={hasNext}
+          hasPrevious={hasPrevious}
+          onPrevious={() => setPage((current) => current - 1)}
+          onNext={() => setPage((current) => current + 1)}
+        />
       </div>
     </main>
   );
