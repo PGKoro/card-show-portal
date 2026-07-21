@@ -17,15 +17,16 @@ export type ShowEvent = {
   estimated_cards: number;
   estimated_attendees: number;
   status: EventStatus;
+  archived: boolean;
   map_venue: number | null;
   map_venue_detail: VenueDetail | null;
   /** Doesn't say whether an image has actually been uploaded — that's
-   *  only ever revealed through the gated /events/:id/map/ endpoint. */
+   * only ever revealed through the gated /events/:id/map/ endpoint. */
   map_visible: boolean;
   /** Separate from map_visible — controls vendor booth self-selection. */
   map_visible_to_vendors: boolean;
   /** Until this passes, a booth a vendor held at this venue's most recent
-   *  prior event is held exclusively for them. Null = no loyalty window. */
+   * prior event is held exclusively for them. Null = no loyalty window. */
   loyalty_priority_deadline: string | null;
 };
 
