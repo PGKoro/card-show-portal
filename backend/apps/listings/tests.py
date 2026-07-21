@@ -7,6 +7,8 @@ from rest_framework.test import APITestCase
 
 from apps.users.models import User
 
+from .models import Listing
+
 
 class ListingGradingTests(APITestCase):
     """Covers the "grading" dropdown (PSA/BGS/SGC/CGC/ungraded/other)."""
@@ -28,7 +30,7 @@ class ListingGradingTests(APITestCase):
         return login.data["access"]
 
     def create_listing(self, **extra):
-        payload = {"title": "Card", "category": "vintage", "price": "10.00", "condition": "mint"}
+        payload = {"title": "Card", "category": "vintage", "price": "10.00"}
         payload.update(extra)
         return self.client.post(
             "/api/v1/listings/",
@@ -41,15 +43,32 @@ class ListingGradingTests(APITestCase):
         response = self.create_listing()
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["grading"], "ungraded")
+        self.assertIsNone(response.data["grade"])
 
-    def test_accepts_psa_grading(self):
-        response = self.create_listing(grading="psa")
+    def test_accepts_psa_grading_with_a_grade(self):
+        response = self.create_listing(grading="psa", grade="9.5")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["grading"], "psa")
+        self.assertEqual(response.data["grade"], "9.5")
 
     def test_rejects_invalid_grading(self):
-        response = self.create_listing(grading="not-a-real-grader")
+        response = self.create_listing(grading="not-a-real-grader", grade="9")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_a_grading_company_without_a_grade(self):
+        response = self.create_listing(grading="psa")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("grade", response.data)
+
+    def test_rejects_a_grade_while_ungraded(self):
+        response = self.create_listing(grade="9.5")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("grade", response.data)
+
+    def test_rejects_a_grade_outside_one_to_ten(self):
+        response = self.create_listing(grading="psa", grade="11")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("grade", response.data)
 
 
 class PublicVendorListingsTests(APITestCase):
@@ -80,7 +99,7 @@ class PublicVendorListingsTests(APITestCase):
         ).data["access"]
         self.client.post(
             "/api/v1/listings/",
-            {"title": "My Card", "category": "vintage", "price": "10.00", "condition": "mint"},
+            {"title": "My Card", "category": "vintage", "price": "10.00"},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
@@ -91,7 +110,7 @@ class PublicVendorListingsTests(APITestCase):
         ).data["access"]
         self.client.post(
             "/api/v1/listings/",
-            {"title": "Other Card", "category": "modern", "price": "5.00", "condition": "mint"},
+            {"title": "Other Card", "category": "modern", "price": "5.00"},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {other_access}",
         )
@@ -133,7 +152,7 @@ class PublicListingFeedTests(APITestCase):
         ).data["access"]
         self.client.post(
             "/api/v1/listings/",
-            {"title": "Rookie Card", "category": "vintage", "price": "20.00", "condition": "mint"},
+            {"title": "Rookie Card", "category": "vintage", "price": "20.00"},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
@@ -168,3 +187,50 @@ class PublicListingFeedTests(APITestCase):
         self.assertEqual(response.data["results"], [])
         response = self.client.get("/api/v1/listings/public/?category=vintage")
         self.assertEqual(len(response.data["results"]), 1)
+
+
+class PublicListingDetailTests(APITestCase):
+    """Covers the single-card page a "Recent listings"/Browse Cards click lands on."""
+
+    def setUp(self):
+        self.approved_vendor = User.objects.create_user(
+            email="detail-approved@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Approved Detail Co",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        self.pending_vendor = User.objects.create_user(
+            email="detail-pending@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Pending Detail Co",
+            vendor_status=User.VendorStatus.PENDING_REVIEW,
+        )
+        self.listing = Listing.objects.create(
+            vendor=self.approved_vendor,
+            title="Rookie Card",
+            category="vintage",
+            price="20.00",
+        )
+        self.pending_listing = Listing.objects.create(
+            vendor=self.pending_vendor,
+            title="Not Yet Public",
+            category="vintage",
+            price="5.00",
+        )
+
+    def test_anonymous_visitor_can_view_a_listing(self):
+        response = self.client.get(f"/api/v1/listings/public/{self.listing.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["title"], "Rookie Card")
+        self.assertEqual(response.data["vendor"], self.approved_vendor.pk)
+        self.assertEqual(response.data["vendor_name"], "Approved Detail Co")
+
+    def test_404_for_listing_from_a_pending_vendor(self):
+        response = self.client.get(f"/api/v1/listings/public/{self.pending_listing.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_404_for_missing_listing(self):
+        response = self.client.get("/api/v1/listings/public/999999/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

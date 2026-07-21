@@ -6,9 +6,10 @@ import { useEffect, useState } from "react";
 
 import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { InventoryCard } from "@/components/InventoryCard";
+import { MessageVendorPanel } from "@/components/MessageVendorPanel";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import { useCategories } from "@/lib/CategoriesContext";
-import { type GradingCompany, type InventoryCondition, type InventoryItem } from "@/lib/mockData";
+import { type GradingCompany, type InventoryItem } from "@/lib/mockData";
 
 type PublicVendor = {
   pk: number;
@@ -24,8 +25,8 @@ type Listing = {
   description: string;
   category: string;
   price: string;
-  condition: InventoryCondition;
   grading: GradingCompany;
+  grade: string | null;
   status: InventoryItem["status"];
 };
 
@@ -36,8 +37,8 @@ function toInventoryItem(listing: Listing): InventoryItem {
     category: listing.category,
     title: listing.title,
     price: Number(listing.price),
-    condition: listing.condition,
     grading: listing.grading,
+    grade: listing.grade !== null ? Number(listing.grade) : null,
     status: listing.status,
     description: listing.description,
   };
@@ -117,6 +118,10 @@ export default function PublicVendorProfilePage() {
               ))}
             </div>
           )}
+
+          <div className="mt-6 max-w-lg">
+            <MessageVendorPanel vendorName={vendor.business_name} />
+          </div>
         </div>
 
         <h2 className="mb-4 mt-10 text-xl font-semibold">
@@ -127,7 +132,11 @@ export default function PublicVendorProfilePage() {
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {listings.map((listing) => (
-              <InventoryCard key={listing.id} item={toInventoryItem(listing)} />
+              <InventoryCard
+                key={listing.id}
+                item={toInventoryItem(listing)}
+                href={`/cards/${listing.id}`}
+              />
             ))}
           </div>
         )}

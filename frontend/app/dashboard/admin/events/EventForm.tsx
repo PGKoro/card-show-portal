@@ -13,21 +13,17 @@ type VendorSearchResult = { pk: number; email: string; business_name: string };
 
 export type EventFormPayload = {
   name: string;
-  venue: string;
-  city: string;
   description: string;
   start_date: string;
   end_date: string | null;
   estimated_cards: number;
   estimated_attendees: number;
   vendors: number[];
-  map_venue: number | null;
+  map_venue: number;
 };
 
 export type EventFormInitialValues = {
   name: string;
-  venue: string;
-  city: string;
   description: string;
   start_date: string;
   end_date: string | null;
@@ -48,8 +44,6 @@ export function EventForm({
   onSubmit: (payload: EventFormPayload) => Promise<void>;
 }) {
   const [name, setName] = useState(initialValues?.name ?? "");
-  const [venue, setVenue] = useState(initialValues?.venue ?? "");
-  const [city, setCity] = useState(initialValues?.city ?? "");
   const [description, setDescription] = useState(initialValues?.description ?? "");
   const [startDate, setStartDate] = useState(initialValues?.start_date ?? "");
   const [endDate, setEndDate] = useState(initialValues?.end_date ?? "");
@@ -129,20 +123,22 @@ export function EventForm({
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (!selectedVenue) {
+      setError("Pick a venue before saving — create one in Manage Venues if it isn't listed yet.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       await onSubmit({
         name,
-        venue,
-        city,
         description,
         start_date: startDate,
         end_date: endDate || null,
         estimated_cards: Number(estimatedCards) || 0,
         estimated_attendees: Number(estimatedAttendees) || 0,
         vendors: selectedVendors.map((v) => v.pk),
-        map_venue: selectedVenue?.pk ?? null,
+        map_venue: selectedVenue.pk,
       });
     } catch (err) {
       setError(getApiErrorMessage(err, "Could not save event. Please try again."));
@@ -165,37 +161,8 @@ export function EventForm({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label htmlFor="venue" className="block text-sm font-medium">
-            Venue name
-          </label>
-          <input
-            id="venue"
-            required
-            value={venue}
-            onChange={(e) => setVenue(e.target.value)}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-          />
-        </div>
-        <div>
-          <label htmlFor="city" className="block text-sm font-medium">
-            Location (city, state)
-          </label>
-          <input
-            id="city"
-            required
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-          />
-        </div>
-      </div>
-
       <div>
-        <span className="block text-sm font-medium">
-          Floor plan venue <span className="font-normal text-gray-400">(optional)</span>
-        </span>
+        <span className="block text-sm font-medium">Venue</span>
         {selectedVenue ? (
           <div className="mt-1 flex items-center justify-between gap-3 rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700">
             <span>{selectedVenue.name}</span>
@@ -247,7 +214,8 @@ export function EventForm({
           </>
         )}
         <p className="mt-1 text-xs text-gray-400">
-          Link a saved venue to reuse its floor plan and let vendors select booths for this event.
+          Don&apos;t see the venue you need? Create it in Manage Venues first, then it&apos;ll show
+          up here.
         </p>
       </div>
 

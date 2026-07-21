@@ -14,8 +14,8 @@ class ListingSerializer(serializers.ModelSerializer):
             "description",
             "category",
             "price",
-            "condition",
             "grading",
+            "grade",
             "status",
             "created_at",
         )
@@ -25,6 +25,25 @@ class ListingSerializer(serializers.ModelSerializer):
         if not Category.objects.filter(slug=value).exists():
             raise serializers.ValidationError("Not a valid category.")
         return value
+
+    def validate_grade(self, value):
+        if value is not None and not (1 <= value <= 10):
+            raise serializers.ValidationError("Grade must be between 1 and 10.")
+        return value
+
+    def validate(self, attrs):
+        grading = attrs.get("grading", getattr(self.instance, "grading", Listing.Grading.UNGRADED))
+        grade = attrs.get("grade", getattr(self.instance, "grade", None))
+        if grading == Listing.Grading.UNGRADED:
+            if grade is not None:
+                raise serializers.ValidationError(
+                    {"grade": "Ungraded items can't have a grade."}
+                )
+        elif grade is None:
+            raise serializers.ValidationError(
+                {"grade": "A grade is required once a grading company is set."}
+            )
+        return attrs
 
 
 class PublicListingSerializer(serializers.ModelSerializer):
@@ -46,8 +65,8 @@ class PublicListingSerializer(serializers.ModelSerializer):
             "description",
             "category",
             "price",
-            "condition",
             "grading",
+            "grade",
             "status",
             "created_at",
             "vendor",

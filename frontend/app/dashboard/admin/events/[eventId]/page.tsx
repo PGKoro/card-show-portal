@@ -154,7 +154,7 @@ export default function EditEventPage() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<ShowEvent>(`/events/${params.eventId}/`)
+    apiFetch<ShowEvent>(`/events/${params.eventId}/`, { accessToken: getAccessToken() ?? undefined })
       .then((data) => {
         if (!cancelled) setEvent(data);
       })
@@ -210,8 +210,6 @@ export default function EditEventPage() {
           submitLabel="Save changes"
           initialValues={{
             name: event.name,
-            venue: event.venue,
-            city: event.city,
             description: event.description,
             start_date: event.start_date,
             end_date: event.end_date,
