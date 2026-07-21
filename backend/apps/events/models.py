@@ -137,6 +137,7 @@ class Event(models.Model):
     )
     estimated_cards = models.PositiveIntegerField(default=0)
     estimated_attendees = models.PositiveIntegerField(default=0)
+    archived = models.BooleanField(default=False)
 
     # Floor map — the map image/preset and booth slots live on Venue (see
     # above), reused across every event held there. map_venue is nullable:

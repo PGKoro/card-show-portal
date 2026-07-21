@@ -42,6 +42,7 @@ class EventSerializer(serializers.ModelSerializer):
             "estimated_cards",
             "estimated_attendees",
             "status",
+            "archived",
             "map_venue",
             "map_venue_detail",
             # Deliberately NOT the venue's map image here — whether a map
