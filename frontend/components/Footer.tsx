@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { NewsletterSignup } from "@/components/NewsletterSignup";
+import { CARDS_FEATURE_ENABLED } from "@/lib/features";
 
 export function Footer() {
   return (
@@ -23,11 +24,13 @@ export function Footer() {
                   Browse Vendors
                 </Link>
               </li>
-              <li>
-                <Link href="/cards" className="hover:text-white">
-                  Browse Cards
-                </Link>
-              </li>
+              {CARDS_FEATURE_ENABLED && (
+                <li>
+                  <Link href="/cards" className="hover:text-white">
+                    Browse Cards
+                  </Link>
+                </li>
+              )}
               <li>
                 <Link href="/events" className="hover:text-white">
                   Browse Events

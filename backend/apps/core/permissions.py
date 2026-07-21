@@ -22,6 +22,7 @@ class HasRole(BasePermission):
         return bool(
             user
             and user.is_authenticated
+            and not user.archived
             and (user.is_superuser or user.role == self.required_role)
         )
 

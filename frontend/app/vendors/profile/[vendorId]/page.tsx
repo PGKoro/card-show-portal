@@ -9,6 +9,7 @@ import { InventoryCard } from "@/components/InventoryCard";
 import { MessageVendorPanel } from "@/components/MessageVendorPanel";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import { useCategories } from "@/lib/CategoriesContext";
+import { CARDS_FEATURE_ENABLED } from "@/lib/features";
 import { type GradingCompany, type InventoryItem } from "@/lib/mockData";
 
 type PublicVendor = {
@@ -56,7 +57,9 @@ export default function PublicVendorProfilePage() {
     let cancelled = false;
     Promise.all([
       apiFetch<PublicVendor>(`/vendors/${vendorId}/`),
-      apiFetch<PaginatedResponse<Listing>>(`/vendors/${vendorId}/listings/?page_size=100`),
+      CARDS_FEATURE_ENABLED
+        ? apiFetch<PaginatedResponse<Listing>>(`/vendors/${vendorId}/listings/?page_size=100`)
+        : Promise.resolve({ count: 0, next: null, previous: null, results: [] } as PaginatedResponse<Listing>),
     ])
       .then(([vendorData, listingsData]) => {
         if (cancelled) return;
@@ -124,21 +127,25 @@ export default function PublicVendorProfilePage() {
           </div>
         </div>
 
-        <h2 className="mb-4 mt-10 text-xl font-semibold">
-          Inventory <span className="text-gray-400">({listings.length})</span>
-        </h2>
-        {listings.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No items listed yet.</p>
-        ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {listings.map((listing) => (
-              <InventoryCard
-                key={listing.id}
-                item={toInventoryItem(listing)}
-                href={`/cards/${listing.id}`}
-              />
-            ))}
-          </div>
+        {CARDS_FEATURE_ENABLED && (
+          <>
+            <h2 className="mb-4 mt-10 text-xl font-semibold">
+              Inventory <span className="text-gray-400">({listings.length})</span>
+            </h2>
+            {listings.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">No items listed yet.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                {listings.map((listing) => (
+                  <InventoryCard
+                    key={listing.id}
+                    item={toInventoryItem(listing)}
+                    href={`/cards/${listing.id}`}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </main>

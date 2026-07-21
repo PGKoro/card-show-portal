@@ -328,6 +328,53 @@ class EventApiTests(APITestCase):
         self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
         self.assertFalse(restore_response.data["archived"])
 
+    def test_admin_can_delete_an_event(self):
+        access = self.access_for("events-admin@example.com")
+        response = self.client.delete(
+            f"/api/v1/events/{self.upcoming.pk}/", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Event.objects.filter(pk=self.upcoming.pk).exists())
+
+    def test_non_admin_cannot_delete_an_event(self):
+        access = self.access_for("events-cust@example.com")
+        response = self.client.delete(
+            f"/api/v1/events/{self.upcoming.pk}/", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Event.objects.filter(pk=self.upcoming.pk).exists())
+
+    def test_anonymous_cannot_delete_an_event(self):
+        response = self.client.delete(f"/api/v1/events/{self.upcoming.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(Event.objects.filter(pk=self.upcoming.pk).exists())
+
+    def test_deleting_an_event_cascades_its_booth_registrations(self):
+        booth = Booth.objects.create(
+            venue=self.venue,
+            booth_number="A1",
+            position_x=1,
+            position_y=1,
+            width=5,
+            height=5,
+            price="50.00",
+        )
+        self.upcoming.map_venue = self.venue
+        self.upcoming.save(update_fields=["map_venue"])
+        registration = BoothRegistration.objects.create(
+            event=self.upcoming,
+            booth=booth,
+            vendor=self.vendor,
+            status=BoothRegistration.Status.CONFIRMED,
+            price=booth.price,
+        )
+        access = self.access_for("events-admin@example.com")
+        self.client.delete(
+            f"/api/v1/events/{self.upcoming.pk}/", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        self.assertFalse(BoothRegistration.objects.filter(pk=registration.pk).exists())
+        self.assertTrue(Booth.objects.filter(pk=booth.pk).exists())
+
 
 class VenueTests(APITestCase):
     """Covers basic Venue CRUD — the reusable floor-plan container."""

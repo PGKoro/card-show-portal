@@ -9,6 +9,7 @@ import { getApiErrorMessage, apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { getAccessToken } from "@/lib/auth";
 import { useCategories } from "@/lib/CategoriesContext";
+import { CARDS_FEATURE_ENABLED } from "@/lib/features";
 import { GRADE_VALUES, GRADING_LABELS, type GradingCompany, type InventoryItem } from "@/lib/mockData";
 
 const GRADINGS = Object.keys(GRADING_LABELS) as GradingCompany[];
@@ -43,7 +44,7 @@ export default function VendorDashboardPage() {
   const { user } = useAuth();
   const { categories } = useCategories();
   const [listings, setListings] = useState<Listing[]>([]);
-  const [loadingListings, setLoadingListings] = useState(true);
+  const [loadingListings, setLoadingListings] = useState(CARDS_FEATURE_ENABLED);
   const [formOpen, setFormOpen] = useState(false);
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +60,7 @@ export default function VendorDashboardPage() {
   const isApproved = user?.vendor_status === "approved";
 
   useEffect(() => {
+    if (!CARDS_FEATURE_ENABLED) return;
     let cancelled = false;
     apiFetch<{ results: Listing[] }>("/listings/", { accessToken: getAccessToken() ?? undefined })
       .then((data) => {
@@ -117,7 +119,9 @@ export default function VendorDashboardPage() {
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold">My Inventory</h1>
+            <h1 className="text-2xl font-semibold">
+              {CARDS_FEATURE_ENABLED ? "My Inventory" : "Vendor Dashboard"}
+            </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {user?.business_name || "Your shop"}
             </p>
@@ -135,7 +139,7 @@ export default function VendorDashboardPage() {
             >
               Profile Settings
             </Link>
-            {isApproved && (
+            {CARDS_FEATURE_ENABLED && isApproved && (
               <button
                 onClick={() => {
                   setFormOpen((v) => !v);
@@ -149,27 +153,27 @@ export default function VendorDashboardPage() {
           </div>
         </div>
 
-        {user?.vendor_status === "pending_review" && (
+        {CARDS_FEATURE_ENABLED && user?.vendor_status === "pending_review" && (
           <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
             Your vendor account is pending admin approval. You&apos;ll be able to add listings
             once it&apos;s approved — check back soon.
           </div>
         )}
 
-        {user?.vendor_status === "rejected" && (
+        {CARDS_FEATURE_ENABLED && user?.vendor_status === "rejected" && (
           <div className="mb-6 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
             Your vendor application wasn&apos;t approved, so you can&apos;t add listings. Contact
             us if you think this is a mistake.
           </div>
         )}
 
-        {justAdded && (
+        {CARDS_FEATURE_ENABLED && justAdded && (
           <div className="mb-6 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
             &ldquo;{justAdded}&rdquo; added to your inventory.
           </div>
         )}
 
-        {formOpen && isApproved && (
+        {CARDS_FEATURE_ENABLED && formOpen && isApproved && (
           <form
             onSubmit={handleSubmit}
             className="mb-8 grid grid-cols-1 gap-4 rounded-lg border border-gray-200 bg-white p-5 shadow-sm sm:grid-cols-2 dark:border-gray-800"
@@ -287,19 +291,20 @@ export default function VendorDashboardPage() {
           </form>
         )}
 
-        {loadingListings ? (
-          <Spinner />
-        ) : listings.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
-            No items yet.
-          </p>
-        ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {listings.map((listing) => (
-              <InventoryCard key={listing.id} item={toInventoryItem(listing)} />
-            ))}
-          </div>
-        )}
+        {CARDS_FEATURE_ENABLED &&
+          (loadingListings ? (
+            <Spinner />
+          ) : listings.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              No items yet.
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              {listings.map((listing) => (
+                <InventoryCard key={listing.id} item={toInventoryItem(listing)} />
+              ))}
+            </div>
+          ))}
       </div>
     </main>
   );

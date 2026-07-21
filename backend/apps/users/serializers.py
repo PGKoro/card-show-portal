@@ -1,6 +1,7 @@
 from dj_rest_auth.registration.serializers import (
     RegisterSerializer as BaseRegisterSerializer,
 )
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from apps.core.models import Category
@@ -73,6 +74,7 @@ class UserDetailsSerializer(serializers.ModelSerializer):
             "location",
             "category_tags",
             "vendor_status",
+            "archived",
             "date_joined",
         )
         read_only_fields = (
@@ -80,6 +82,7 @@ class UserDetailsSerializer(serializers.ModelSerializer):
             "role",
             "onboarding_completed",
             "vendor_status",
+            "archived",
             "date_joined",
         )
 
@@ -226,3 +229,75 @@ class PublicVendorSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ("pk", "business_name", "business_description", "location", "category_tags")
+
+
+class AdminCreateUserSerializer(serializers.ModelSerializer):
+    """
+    POST /api/v1/admin/users/create/ — an admin directly provisions a
+    customer or vendor account (e.g. onboarding someone over the phone)
+    instead of them going through public signup + the onboarding wizard.
+    The account is created fully set up (onboarding_completed=True) so it
+    can log in immediately; a vendor account created this way is
+    auto-approved, since the admin creating it is already vouching for it.
+    """
+
+    password = serializers.CharField(write_only=True)
+    role = serializers.ChoiceField(choices=[User.Role.CUSTOMER, User.Role.VENDOR])
+    category_tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+    )
+
+    class Meta:
+        model = User
+        fields = (
+            "email",
+            "password",
+            "first_name",
+            "last_name",
+            "role",
+            "business_name",
+            "business_description",
+            "location",
+            "category_tags",
+        )
+        extra_kwargs = {
+            "first_name": {"required": True},
+            "last_name": {"required": False, "allow_blank": True},
+            "business_name": {"required": False, "allow_blank": True},
+            "business_description": {"required": False, "allow_blank": True},
+            "location": {"required": False, "allow_blank": True},
+        }
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError(
+                "A user is already registered with this email address."
+            )
+        return value
+
+    def validate_password(self, value):
+        validate_password(value)
+        return value
+
+    def validate_category_tags(self, value):
+        return _validate_category_tags(value)
+
+    def validate(self, attrs):
+        if attrs["role"] == User.Role.VENDOR and not attrs.get("business_name"):
+            raise serializers.ValidationError(
+                {"business_name": "This field is required for vendor accounts."}
+            )
+        return attrs
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        role = validated_data["role"]
+        vendor_status = User.VendorStatus.APPROVED if role == User.Role.VENDOR else None
+        return User.objects.create_user(
+            password=password,
+            onboarding_completed=True,
+            vendor_status=vendor_status,
+            **validated_data,
+        )

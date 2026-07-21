@@ -37,14 +37,18 @@ class PublicVendorListingsView(generics.ListAPIView):
     GET /api/v1/vendors/<id>/listings/ — a vendor's listings for their
     public profile page (floor map click-through). Unlike the vendor's
     own /api/v1/listings/, this is public and scoped to whichever vendor
-    the URL names, not the requesting user.
+    the URL names, not the requesting user. 404s for an archived vendor,
+    matching PublicVendorDetailView (there'd be no profile page to link
+    these listings from anyway).
     """
 
     permission_classes = [AllowAny]
     serializer_class = ListingSerializer
 
     def get_queryset(self):
-        vendor = get_object_or_404(User, pk=self.kwargs["pk"], role=User.Role.VENDOR)
+        vendor = get_object_or_404(
+            User, pk=self.kwargs["pk"], role=User.Role.VENDOR, archived=False
+        )
         return Listing.objects.filter(vendor=vendor)
 
 
@@ -52,8 +56,9 @@ class PublicListingListView(generics.ListAPIView):
     """
     GET /api/v1/listings/public/ — cross-vendor public feed (backs the
     homepage's "Recent listings" and the /cards browse page). Scoped to
-    approved vendors only, same reasoning as PublicVendorListView — a
-    listing from a still-pending vendor shouldn't appear in public browsing.
+    approved, non-archived vendors only, same reasoning as
+    PublicVendorListView — a listing from a still-pending or archived
+    vendor shouldn't appear in public browsing.
     """
 
     permission_classes = [AllowAny]
@@ -63,6 +68,7 @@ class PublicListingListView(generics.ListAPIView):
         queryset = Listing.objects.select_related("vendor").filter(
             vendor__role=User.Role.VENDOR,
             vendor__vendor_status=User.VendorStatus.APPROVED,
+            vendor__archived=False,
         )
         search = self.request.query_params.get("search", "").strip()
         if search:
@@ -80,7 +86,8 @@ class PublicListingDetailView(generics.RetrieveAPIView):
     GET /api/v1/listings/public/<id>/ — a single listing's own page (backs
     the "click a card" flow from the homepage/Browse Cards feeds, which
     used to dead-end on the vendor's whole inventory instead of the actual
-    card). Same approved-vendor scoping as PublicListingListView.
+    card). Same approved, non-archived vendor scoping as
+    PublicListingListView.
     """
 
     permission_classes = [AllowAny]
@@ -90,4 +97,5 @@ class PublicListingDetailView(generics.RetrieveAPIView):
         return Listing.objects.select_related("vendor").filter(
             vendor__role=User.Role.VENDOR,
             vendor__vendor_status=User.VendorStatus.APPROVED,
+            vendor__archived=False,
         )

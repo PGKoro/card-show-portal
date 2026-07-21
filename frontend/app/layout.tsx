@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { ArchivedAccountGuard } from "@/components/ArchivedAccountGuard";
 import { ConfirmDialogProvider } from "@/components/ConfirmDialogProvider";
 import { Footer } from "@/components/Footer";
 import { NavBar } from "@/components/NavBar";
@@ -39,7 +40,7 @@ export default function RootLayout({
           <CategoriesProvider>
             <ConfirmDialogProvider>
               <NavBar />
-              {children}
+              <ArchivedAccountGuard>{children}</ArchivedAccountGuard>
               <Footer />
             </ConfirmDialogProvider>
           </CategoriesProvider>

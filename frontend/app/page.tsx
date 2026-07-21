@@ -7,9 +7,11 @@ import { CardCarousel } from "@/components/CardCarousel";
 import { HeroCarousel, type HeroSlide } from "@/components/HeroCarousel";
 import { InventoryCard } from "@/components/InventoryCard";
 import { ShowCard } from "@/components/ShowCard";
+import { Spinner } from "@/components/Spinner";
 import { VendorCard, type PublicVendor } from "@/components/VendorCard";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import type { ShowEvent } from "@/lib/events";
+import { CARDS_FEATURE_ENABLED } from "@/lib/features";
 import { type GradingCompany, type InventoryItem } from "@/lib/mockData";
 
 const HERO_IMAGES = ["/cardshow1.webp", "/cardshow2.avif", "/cardshow3.jpeg"];
@@ -45,18 +47,26 @@ export default function HomePage() {
   const [featuredVendors, setFeaturedVendors] = useState<PublicVendor[]>([]);
   const [recentListings, setRecentListings] = useState<PublicListing[]>([]);
   const [events, setEvents] = useState<ShowEvent[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<{ results: ShowEvent[] }>("/events/").then((data) => {
-      if (!cancelled) setEvents(data.results);
-    });
-    apiFetch<PaginatedResponse<PublicVendor>>("/vendors/?page_size=10").then((data) => {
-      if (!cancelled) setFeaturedVendors(data.results);
-    });
-    apiFetch<PaginatedResponse<PublicListing>>("/listings/public/?page_size=10").then((data) => {
-      if (!cancelled) setRecentListings(data.results);
-    });
+    Promise.all([
+      apiFetch<{ results: ShowEvent[] }>("/events/"),
+      apiFetch<PaginatedResponse<PublicVendor>>("/vendors/?page_size=10"),
+      CARDS_FEATURE_ENABLED
+        ? apiFetch<PaginatedResponse<PublicListing>>("/listings/public/?page_size=10")
+        : Promise.resolve({ count: 0, next: null, previous: null, results: [] } as PaginatedResponse<PublicListing>),
+    ])
+      .then(([eventsData, vendorsData, listingsData]) => {
+        if (cancelled) return;
+        setEvents(eventsData.results);
+        setFeaturedVendors(vendorsData.results);
+        setRecentListings(listingsData.results);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -91,12 +101,14 @@ export default function HomePage() {
           >
             Browse Vendors
           </Link>
-          <Link
-            href="/cards"
-            className="rounded-md border border-white/60 px-5 py-2.5 font-medium text-white hover:bg-white/10"
-          >
-            Browse Cards
-          </Link>
+          {CARDS_FEATURE_ENABLED && (
+            <Link
+              href="/cards"
+              className="rounded-md border border-white/60 px-5 py-2.5 font-medium text-white hover:bg-white/10"
+            >
+              Browse Cards
+            </Link>
+          )}
         </div>
       </HeroCarousel>
 
@@ -108,7 +120,9 @@ export default function HomePage() {
               View all vendors
             </Link>
           </div>
-          {featuredVendors.length === 0 ? (
+          {loading ? (
+            <Spinner />
+          ) : featuredVendors.length === 0 ? (
             <p className="text-gray-500 dark:text-gray-400">No vendors listed yet.</p>
           ) : (
             <CardCarousel autoAdvance={false}>
@@ -122,33 +136,37 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="py-16">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="mb-6 flex items-end justify-between">
-            <h2 className="text-2xl font-semibold">Recent listings</h2>
-            <Link href="/cards" className="text-sm font-medium text-brand-blue hover:underline">
-              Browse all cards
-            </Link>
+      {CARDS_FEATURE_ENABLED && (
+        <section className="py-16">
+          <div className="mx-auto max-w-6xl px-6">
+            <div className="mb-6 flex items-end justify-between">
+              <h2 className="text-2xl font-semibold">Recent listings</h2>
+              <Link href="/cards" className="text-sm font-medium text-brand-blue hover:underline">
+                Browse all cards
+              </Link>
+            </div>
+            {loading ? (
+              <Spinner />
+            ) : recentListings.length === 0 ? (
+              <p className="text-gray-500 dark:text-gray-400">No cards listed yet.</p>
+            ) : (
+              <CardCarousel loop>
+                {recentListings.map((listing) => (
+                  <div key={listing.id} className="w-40 shrink-0 snap-start sm:w-44">
+                    <InventoryCard
+                      item={toInventoryItem(listing)}
+                      vendorName={listing.vendor_name}
+                      href={`/cards/${listing.id}`}
+                    />
+                  </div>
+                ))}
+              </CardCarousel>
+            )}
           </div>
-          {recentListings.length === 0 ? (
-            <p className="text-gray-500 dark:text-gray-400">No cards listed yet.</p>
-          ) : (
-            <CardCarousel loop>
-              {recentListings.map((listing) => (
-                <div key={listing.id} className="w-40 shrink-0 snap-start sm:w-44">
-                  <InventoryCard
-                    item={toInventoryItem(listing)}
-                    vendorName={listing.vendor_name}
-                    href={`/cards/${listing.id}`}
-                  />
-                </div>
-              ))}
-            </CardCarousel>
-          )}
-        </div>
-      </section>
+        </section>
+      )}
 
-      {upcomingShows.length > 0 && (
+      {(loading || upcomingShows.length > 0) && (
         <section className="bg-white py-16">
           <div className="mx-auto max-w-6xl px-6">
             <div className="mb-6 flex items-end justify-between">
@@ -157,16 +175,20 @@ export default function HomePage() {
                 View all events
               </Link>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {upcomingShows.map((show) => (
-                <ShowCard key={show.id} show={show} />
-              ))}
-            </div>
+            {loading ? (
+              <Spinner />
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {upcomingShows.map((show) => (
+                  <ShowCard key={show.id} show={show} />
+                ))}
+              </div>
+            )}
           </div>
         </section>
       )}
 
-      {pastShows.length > 0 && (
+      {(loading || pastShows.length > 0) && (
         <section className="py-16">
           <div className="mx-auto max-w-6xl px-6">
             <div className="mb-6 flex items-end justify-between">
@@ -175,11 +197,15 @@ export default function HomePage() {
                 View all events
               </Link>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {pastShows.map((show) => (
-                <ShowCard key={show.id} show={show} />
-              ))}
-            </div>
+            {loading ? (
+              <Spinner />
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {pastShows.map((show) => (
+                  <ShowCard key={show.id} show={show} />
+                ))}
+              </div>
+            )}
           </div>
         </section>
       )}
