@@ -744,7 +744,9 @@ class AdminAccountManagementTests(APITestCase):
     """
 
     def setUp(self):
-        self.admin = User.objects.create_superuser(email="acct-admin@example.com", password="s3cret!23")
+        self.admin = User.objects.create_superuser(
+            email="acct-admin@example.com", password="s3cret!23"
+        )
         self.other_admin = User.objects.create_superuser(
             email="acct-admin2@example.com", password="s3cret!23"
         )
