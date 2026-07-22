@@ -6,3 +6,7 @@
 // homepage "Recent listings", vendor profile inventory grids). Turned off
 // because vendors aren't posting card inventory right now.
 export const CARDS_FEATURE_ENABLED = false;
+
+// The "Set Registry" nav link/page. The page itself is untouched — this
+// only hides the entry point.
+export const SET_REGISTRY_FEATURE_ENABLED = false;

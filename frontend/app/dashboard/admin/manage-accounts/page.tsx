@@ -267,6 +267,12 @@ export default function ManageAccountsPage() {
                   </div>
 
                   <div className="flex items-center justify-end gap-2 border-t border-gray-100 pt-3 dark:border-gray-800">
+                    <Link
+                      href={`/dashboard/admin/manage-accounts/${user.pk}`}
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
+                    >
+                      Manage
+                    </Link>
                     {isSelf ? (
                       <p className="text-xs text-gray-400 dark:text-gray-500">
                         You can&apos;t archive or delete your own account.

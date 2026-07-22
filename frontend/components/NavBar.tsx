@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { CardStackLogo } from "@/components/CardStackLogo";
 import { useAuth } from "@/lib/AuthContext";
 import { dashboardPathForRole } from "@/lib/auth";
-import { CARDS_FEATURE_ENABLED } from "@/lib/features";
+import { CARDS_FEATURE_ENABLED, SET_REGISTRY_FEATURE_ENABLED } from "@/lib/features";
 
 const HEADER_HIDDEN_ON = ["/login", "/signup"];
 
@@ -68,9 +68,11 @@ export function NavBar() {
           <Link href="/events" className="hover:text-gray-900">
             Browse Events
           </Link>
-          <Link href="/set-registry" className="hover:text-gray-900">
-            Set Registry
-          </Link>
+          {SET_REGISTRY_FEATURE_ENABLED && (
+            <Link href="/set-registry" className="hover:text-gray-900">
+              Set Registry
+            </Link>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
