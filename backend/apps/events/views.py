@@ -39,6 +39,10 @@ class EventListCreateView(generics.ListCreateAPIView):
     (that's the only caller that does), so they stay out of the public
     site and every vendor-facing list (homepage, /events, "Attend an
     Event") without those pages needing to know archiving exists.
+    ?vendor=<id> narrows to events that vendor is associated with — either
+    manually attached (the legacy Event.vendors picker in Manage Events) or
+    via a confirmed BoothRegistration (the self-service booth flow) —
+    backing a vendor's public profile page's "events" list.
     POST — admin-only, create a new event.
     """
 
@@ -48,10 +52,19 @@ class EventListCreateView(generics.ListCreateAPIView):
         queryset = Event.objects.all()
         search = self.request.query_params.get("search", "").strip()
         status = self.request.query_params.get("status", "").strip()
+        vendor_id = self.request.query_params.get("vendor", "").strip()
         if search:
             queryset = queryset.filter(
                 Q(name__icontains=search) | Q(venue__icontains=search) | Q(city__icontains=search)
             )
+        if vendor_id:
+            queryset = queryset.filter(
+                Q(vendors__id=vendor_id)
+                | Q(
+                    booth_registrations__vendor_id=vendor_id,
+                    booth_registrations__status=BoothRegistration.Status.CONFIRMED,
+                )
+            ).distinct()
         if status == "archived":
             # GET is AllowAny so ordinary browsing keeps working without a
             # token, but archived events themselves are admin-only — a

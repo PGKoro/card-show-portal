@@ -152,12 +152,22 @@ class AdminUserSearchView(generics.ListAPIView):
         return queryset
 
 
-class AdminUserDetailView(generics.RetrieveDestroyAPIView):
+class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     GET /api/v1/admin/users/<id>/ — full submitted profile for one user
-    (used by the "view details" link on a pending vendor approval).
-    UserDetailsSerializer never includes password, so there's nothing to
-    exclude there.
+    (used by the "view details" link on a pending vendor approval, and by
+    "Manage Accounts"' Manage page). UserDetailsSerializer never includes
+    password, so there's nothing to exclude there.
+
+    PATCH — an admin edits another account's name/business info directly
+    (the "Manage" action in Manage Accounts). Reuses ProfileSerializer as-is
+    — it already operates on whatever instance get_object() resolves to
+    (not necessarily request.user) and already has the right validation
+    (category tags against the live vocabulary, business_name required for
+    vendors). Deliberately still can't touch email/role/vendor_status/
+    archived here — those go through their own dedicated endpoints
+    (SetUserRoleView, Archive/RestoreUserView) so this can't be used as a
+    side door around them.
 
     DELETE — permanently removes the account, backing "Manage Accounts"'
     delete action. Cascades to their own listings (Listing.vendor is
@@ -168,8 +178,16 @@ class AdminUserDetailView(generics.RetrieveDestroyAPIView):
     """
 
     permission_classes = [IsAdminRole]
-    serializer_class = UserDetailsSerializer
     queryset = User.objects.all()
+
+    def get_serializer_class(self):
+        if self.request.method in ("PATCH", "PUT"):
+            return ProfileSerializer
+        return UserDetailsSerializer
+
+    def update(self, request, *args, **kwargs):
+        super().update(request, *args, **kwargs)
+        return Response(UserDetailsSerializer(self.get_object()).data)
 
     def perform_destroy(self, instance):
         if instance.pk == self.request.user.pk:

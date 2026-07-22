@@ -1,12 +1,30 @@
+import re
+from datetime import date
+
 from dj_rest_auth.registration.serializers import (
     RegisterSerializer as BaseRegisterSerializer,
 )
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import URLValidator
 from rest_framework import serializers
 
 from apps.core.models import Category
 
 from .models import User
+
+SOCIAL_LINK_FIELDS = ("instagram_url", "youtube_url", "x_url", "website_url")
+
+# Optional, vendor-only "extra details" shown on the public profile page —
+# collected via Profile Settings (and its admin-driven equivalent) rather
+# than during onboarding, to keep that flow short. See ProfileSerializer.
+VENDOR_DETAIL_FIELDS = (
+    "tagline",
+    "collection_size",
+    "selling_since_year",
+    "also_buying",
+    "payment_methods",
+)
 
 
 def _validate_category_tags(value):
@@ -21,6 +39,63 @@ def _validate_category_tags(value):
     if invalid:
         raise serializers.ValidationError(f"Not valid categories: {', '.join(invalid)}.")
     return value
+
+
+def _validate_payment_methods(value):
+    """Shared by ProfileSerializer — checks against User.PaymentMethod."""
+    valid_values = set(User.PaymentMethod.values)
+    invalid = sorted(set(value) - valid_values)
+    if invalid:
+        raise serializers.ValidationError(f"Not valid payment methods: {', '.join(invalid)}.")
+    return value
+
+
+def _normalize_url(value):
+    """
+    Shared by SocialLinksMixin below — a vendor typing "instagram.com/shop"
+    without a scheme shouldn't get a raw validation error, so this prepends
+    https:// before validating instead of rejecting it outright.
+    """
+    value = value.strip()
+    if not value:
+        return value
+    if not re.match(r"^https?://", value, re.IGNORECASE):
+        value = f"https://{value}"
+    try:
+        URLValidator()(value)
+    except DjangoValidationError:
+        raise serializers.ValidationError("Enter a valid URL.")
+    return value
+
+
+class SocialLinksMixin(serializers.Serializer):
+    """
+    Optional instagram_url/youtube_url/x_url/website_url fields with lenient
+    validation (see _normalize_url) — shared by every serializer that lets a
+    vendor set these: onboarding, self-service Profile Settings (also reused
+    for admin-driven edits — see AdminUserDetailView), and admin-created
+    accounts. Declared here as plain CharFields rather than left to
+    ModelSerializer's auto-generated URLField so _normalize_url gets a
+    chance to add a missing scheme before Django's stricter URLValidator
+    ever sees the raw input.
+    """
+
+    instagram_url = serializers.CharField(required=False, allow_blank=True)
+    youtube_url = serializers.CharField(required=False, allow_blank=True)
+    x_url = serializers.CharField(required=False, allow_blank=True)
+    website_url = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_instagram_url(self, value):
+        return _normalize_url(value)
+
+    def validate_youtube_url(self, value):
+        return _normalize_url(value)
+
+    def validate_x_url(self, value):
+        return _normalize_url(value)
+
+    def validate_website_url(self, value):
+        return _normalize_url(value)
 
 
 class RegisterSerializer(BaseRegisterSerializer):
@@ -73,10 +148,17 @@ class UserDetailsSerializer(serializers.ModelSerializer):
             "business_description",
             "location",
             "category_tags",
+            "instagram_url",
+            "youtube_url",
+            "x_url",
+            "website_url",
+            "banner_image_url",
+            "avatar_image_url",
+            "profile_theme",
             "vendor_status",
             "archived",
             "date_joined",
-        )
+        ) + VENDOR_DETAIL_FIELDS
         read_only_fields = (
             "email",
             "role",
@@ -114,7 +196,7 @@ class OnboardingBasicSerializer(serializers.ModelSerializer):
         return instance
 
 
-class OnboardingDetailsSerializer(serializers.ModelSerializer):
+class OnboardingDetailsSerializer(SocialLinksMixin, serializers.ModelSerializer):
     """
     Onboarding step 2 (PATCH /api/v1/auth/onboarding/details/):
     role-specific details, submitted from /onboarding/customer or
@@ -132,7 +214,12 @@ class OnboardingDetailsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("business_name", "business_description", "location", "category_tags")
+        fields = (
+            "business_name",
+            "business_description",
+            "location",
+            "category_tags",
+        ) + SOCIAL_LINK_FIELDS
         extra_kwargs = {
             "business_name": {"required": False, "allow_blank": True},
             "business_description": {"required": False, "allow_blank": True},
@@ -156,6 +243,8 @@ class OnboardingDetailsSerializer(serializers.ModelSerializer):
             instance.business_name = validated_data.get("business_name", "")
             instance.business_description = validated_data.get("business_description", "")
             instance.location = validated_data.get("location", "")
+            for field in SOCIAL_LINK_FIELDS:
+                setattr(instance, field, validated_data.get(field, ""))
             instance.vendor_status = User.VendorStatus.PENDING_REVIEW
 
         instance.onboarding_completed = True
@@ -163,7 +252,7 @@ class OnboardingDetailsSerializer(serializers.ModelSerializer):
         return instance
 
 
-class ProfileSerializer(serializers.ModelSerializer):
+class ProfileSerializer(SocialLinksMixin, serializers.ModelSerializer):
     """
     PATCH /api/v1/auth/profile/ — "Profile Settings": lets an
     already-onboarded user edit their own name and role-specific details
@@ -171,9 +260,18 @@ class ProfileSerializer(serializers.ModelSerializer):
     onboarding_completed — role changes stay admin-only (see
     apps.users.views.SetUserRoleView), so a user can't use this to grant
     themselves vendor/admin access.
+
+    Also reused as-is by AdminUserDetailView's PATCH (an admin editing
+    someone else's account from Manage Accounts) — this serializer only
+    ever touches whatever instance get_object() resolves to, never
+    self.context['request'].user, so it works unmodified either way.
     """
 
     category_tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+    )
+    payment_methods = serializers.ListField(
         child=serializers.CharField(),
         required=False,
     )
@@ -187,16 +285,29 @@ class ProfileSerializer(serializers.ModelSerializer):
             "business_description",
             "location",
             "category_tags",
-        )
+            "profile_theme",
+        ) + SOCIAL_LINK_FIELDS + VENDOR_DETAIL_FIELDS
         extra_kwargs = {
             "last_name": {"required": False, "allow_blank": True},
             "business_name": {"required": False, "allow_blank": True},
             "business_description": {"required": False, "allow_blank": True},
             "location": {"required": False, "allow_blank": True},
+            "tagline": {"required": False, "allow_blank": True},
+            "collection_size": {"required": False, "allow_null": True},
+            "selling_since_year": {"required": False, "allow_null": True},
+            "also_buying": {"required": False},
         }
 
     def validate_category_tags(self, value):
         return _validate_category_tags(value)
+
+    def validate_payment_methods(self, value):
+        return _validate_payment_methods(value)
+
+    def validate_selling_since_year(self, value):
+        if value is not None and not (1900 <= value <= date.today().year):
+            raise serializers.ValidationError(f"Enter a year between 1900 and {date.today().year}.")
+        return value
 
     def validate(self, attrs):
         if (
@@ -215,6 +326,11 @@ class ProfileSerializer(serializers.ModelSerializer):
             validated_data.pop("business_name", None)
             validated_data.pop("business_description", None)
             validated_data.pop("location", None)
+            validated_data.pop("profile_theme", None)
+            for field in SOCIAL_LINK_FIELDS:
+                validated_data.pop(field, None)
+            for field in VENDOR_DETAIL_FIELDS:
+                validated_data.pop(field, None)
         return super().update(instance, validated_data)
 
 
@@ -223,15 +339,26 @@ class PublicVendorSerializer(serializers.ModelSerializer):
     GET /api/v1/vendors/<id>/ — public-safe profile for a vendor account
     (business info only; never email/vendor_status/etc). Backs the floor
     map's click-through for booths linked to a real account, and that
-    vendor's own minimal public profile page.
+    vendor's own public profile page (banner/avatar images, social links,
+    and the events list all read straight off this).
     """
 
     class Meta:
         model = User
-        fields = ("pk", "business_name", "business_description", "location", "category_tags")
+        fields = (
+            "pk",
+            "business_name",
+            "business_description",
+            "location",
+            "category_tags",
+            "banner_image_url",
+            "avatar_image_url",
+            "profile_theme",
+            "date_joined",
+        ) + SOCIAL_LINK_FIELDS + VENDOR_DETAIL_FIELDS
 
 
-class AdminCreateUserSerializer(serializers.ModelSerializer):
+class AdminCreateUserSerializer(SocialLinksMixin, serializers.ModelSerializer):
     """
     POST /api/v1/admin/users/create/ — an admin directly provisions a
     customer or vendor account (e.g. onboarding someone over the phone)
@@ -261,7 +388,7 @@ class AdminCreateUserSerializer(serializers.ModelSerializer):
             "business_description",
             "location",
             "category_tags",
-        )
+        ) + SOCIAL_LINK_FIELDS
         extra_kwargs = {
             "first_name": {"required": True},
             "last_name": {"required": False, "allow_blank": True},

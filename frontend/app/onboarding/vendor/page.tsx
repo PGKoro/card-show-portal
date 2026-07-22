@@ -22,6 +22,10 @@ export default function VendorOnboardingPage() {
   const [businessDescription, setBusinessDescription] = useState("");
   const [location, setLocation] = useState("");
   const [categoryTags, setCategoryTags] = useState<string[]>([]);
+  const [instagramUrl, setInstagramUrl] = useState("");
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [xUrl, setXUrl] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // See the matching comment in app/onboarding/page.tsx — setUser(updated)
@@ -65,6 +69,10 @@ export default function VendorOnboardingPage() {
           business_description: businessDescription,
           location,
           category_tags: categoryTags,
+          instagram_url: instagramUrl,
+          youtube_url: youtubeUrl,
+          x_url: xUrl,
+          website_url: websiteUrl,
         },
       });
       setUser(updated);
@@ -167,6 +175,40 @@ export default function VendorOnboardingPage() {
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="space-y-3 rounded-md border border-gray-200 p-4 dark:border-gray-800">
+          <span className="block text-sm font-medium">
+            Social links <span className="font-normal text-gray-400">(optional)</span>
+          </span>
+          <input
+            type="text"
+            placeholder="Instagram (e.g. instagram.com/yourshop)"
+            value={instagramUrl}
+            onChange={(e) => setInstagramUrl(e.target.value)}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+          />
+          <input
+            type="text"
+            placeholder="YouTube"
+            value={youtubeUrl}
+            onChange={(e) => setYoutubeUrl(e.target.value)}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+          />
+          <input
+            type="text"
+            placeholder="X (Twitter)"
+            value={xUrl}
+            onChange={(e) => setXUrl(e.target.value)}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+          />
+          <input
+            type="text"
+            placeholder="Website"
+            value={websiteUrl}
+            onChange={(e) => setWebsiteUrl(e.target.value)}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+          />
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}

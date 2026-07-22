@@ -24,6 +24,25 @@ class User(AbstractUser):
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
 
+    class ProfileTheme(models.TextChoices):
+        # A handful of preset color pairs for the public profile page's
+        # banner gradient + avatar circle — reusing the site's existing
+        # brand palette (see globals.css) rather than a color picker, since
+        # there's no image-upload flow yet (see banner_image_url below).
+        BLUE = "blue", "Blue"
+        CRIMSON = "crimson", "Crimson"
+        TEAL = "teal", "Teal"
+        ORANGE = "orange", "Orange"
+        CHARCOAL = "charcoal", "Charcoal"
+
+    class PaymentMethod(models.TextChoices):
+        CASH = "cash", "Cash"
+        CREDIT_CARD = "credit_card", "Credit/Debit Card"
+        VENMO = "venmo", "Venmo"
+        PAYPAL = "paypal", "PayPal"
+        CASHAPP = "cashapp", "Cash App"
+        ZELLE = "zelle", "Zelle"
+
     username = None
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.CUSTOMER)
@@ -39,6 +58,37 @@ class User(AbstractUser):
     business_name = models.CharField(max_length=200, blank=True)
     business_description = models.TextField(blank=True)
     location = models.CharField(max_length=200, blank=True)
+
+    # Optional social links shown on a vendor's public profile — each one
+    # simply doesn't render an icon when blank (see PublicVendorSerializer).
+    instagram_url = models.URLField(max_length=300, blank=True)
+    youtube_url = models.URLField(max_length=300, blank=True)
+    x_url = models.URLField(max_length=300, blank=True)
+    website_url = models.URLField(max_length=300, blank=True)
+
+    # No upload flow exists yet for either of these — they're just DB
+    # columns ready for whenever that's built. Until then they stay blank
+    # and the public profile page always renders its placeholder banner/
+    # avatar graphics regardless.
+    banner_image_url = models.URLField(max_length=500, blank=True)
+    avatar_image_url = models.URLField(max_length=500, blank=True)
+
+    # Vendor-only: which preset color pair (see ProfileTheme above) renders
+    # the public profile page's banner/avatar. Defaults to the site's own
+    # blue/navy brand colors.
+    profile_theme = models.CharField(
+        max_length=20, choices=ProfileTheme.choices, default=ProfileTheme.BLUE
+    )
+
+    # Vendor-only, all optional — a few extra trust/practical signals shown
+    # on the public profile page. None of these are collected during
+    # onboarding (kept out to avoid lengthening that flow); a vendor fills
+    # them in later via Profile Settings if they want to.
+    tagline = models.CharField(max_length=100, blank=True)
+    collection_size = models.PositiveIntegerField(null=True, blank=True)
+    selling_since_year = models.PositiveIntegerField(null=True, blank=True)
+    also_buying = models.BooleanField(default=False)
+    payment_methods = models.JSONField(default=list, blank=True)
 
     # For vendors: categories they sell. For customers: categories they're
     # interested in. Same vocabulary (see apps.core.models.Category),

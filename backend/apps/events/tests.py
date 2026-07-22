@@ -75,6 +75,44 @@ class EventApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "Upcoming Show")
 
+    def test_vendor_filter_includes_manually_attached_and_confirmed_booth_events(self):
+        # Manually attached via the legacy Event.vendors picker.
+        self.upcoming.vendors.add(self.vendor)
+
+        # Confirmed via the booth-registration self-service flow.
+        booth = Booth.objects.create(
+            venue=self.venue, booth_number="A1", position_x=1, position_y=1, width=5, height=5,
+            price="50.00",
+        )
+        BoothRegistration.objects.create(
+            event=self.past, booth=booth, vendor=self.vendor,
+            status=BoothRegistration.Status.CONFIRMED, price=booth.price,
+        )
+        # A merely-requested (not confirmed) registration shouldn't count.
+        other_event = Event.objects.create(
+            name="Other Show", venue="Some Hall", city="Some City",
+            start_date=datetime.date.today() + datetime.timedelta(days=20),
+        )
+        other_booth = Booth.objects.create(
+            venue=self.venue, booth_number="A2", position_x=1, position_y=1, width=5, height=5,
+            price="50.00",
+        )
+        BoothRegistration.objects.create(
+            event=other_event, booth=other_booth, vendor=self.vendor,
+            status=BoothRegistration.Status.REQUESTED, price=other_booth.price,
+        )
+
+        response = self.client.get(f"/api/v1/events/?vendor={self.vendor.pk}&page_size=50")
+        names = {e["name"] for e in response.data["results"]}
+        self.assertEqual(names, {"Upcoming Show", "Past Show"})
+
+    def test_vendor_filter_excludes_archived_events(self):
+        self.upcoming.vendors.add(self.vendor)
+        self.upcoming.archived = True
+        self.upcoming.save(update_fields=["archived"])
+        response = self.client.get(f"/api/v1/events/?vendor={self.vendor.pk}")
+        self.assertEqual(response.data["results"], [])
+
     def test_non_admin_cannot_create_event(self):
         access = self.access_for("events-cust@example.com")
         response = self.client.post(

@@ -30,6 +30,18 @@ export type CurrentUser = {
   business_description: string;
   location: string;
   category_tags: string[];
+  instagram_url: string;
+  youtube_url: string;
+  x_url: string;
+  website_url: string;
+  banner_image_url: string;
+  avatar_image_url: string;
+  profile_theme: string;
+  tagline: string;
+  collection_size: number | null;
+  selling_since_year: number | null;
+  also_buying: boolean;
+  payment_methods: string[];
   vendor_status: "pending_review" | "approved" | "rejected" | null;
   archived: boolean;
   date_joined: string;

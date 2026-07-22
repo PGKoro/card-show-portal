@@ -308,6 +308,99 @@ class ProfileEndpointTests(APITestCase):
         # back to pending review.
         self.assertEqual(response.data["vendor_status"], User.VendorStatus.APPROVED)
 
+    def test_vendor_can_set_social_links_scheme_optional(self):
+        access = self.access_for("settings-vendor@example.com")
+        response = self.client.patch(
+            self.url,
+            {
+                "instagram_url": "instagram.com/valscards",
+                "youtube_url": "https://youtube.com/@valscards",
+                "x_url": "",
+                "website_url": "valscards.example.com",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["instagram_url"], "https://instagram.com/valscards")
+        self.assertEqual(response.data["youtube_url"], "https://youtube.com/@valscards")
+        self.assertEqual(response.data["website_url"], "https://valscards.example.com")
+        self.assertEqual(response.data["x_url"], "")
+
+    def test_social_link_rejects_garbage_input(self):
+        access = self.access_for("settings-vendor@example.com")
+        response = self.client.patch(
+            self.url,
+            {"instagram_url": "not a url"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_customer_cannot_set_social_links(self):
+        access = self.access_for("settings-customer@example.com")
+        response = self.client.patch(
+            self.url,
+            {"instagram_url": "instagram.com/notavendor"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.instagram_url, "")
+
+    def test_vendor_can_set_extra_detail_fields(self):
+        access = self.access_for("settings-vendor@example.com")
+        response = self.client.patch(
+            self.url,
+            {
+                "tagline": "Vintage cards, fair prices.",
+                "collection_size": 5000,
+                "selling_since_year": 2015,
+                "also_buying": True,
+                "payment_methods": ["cash", "venmo"],
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["tagline"], "Vintage cards, fair prices.")
+        self.assertEqual(response.data["collection_size"], 5000)
+        self.assertEqual(response.data["selling_since_year"], 2015)
+        self.assertTrue(response.data["also_buying"])
+        self.assertEqual(response.data["payment_methods"], ["cash", "venmo"])
+
+    def test_extra_detail_fields_reject_invalid_input(self):
+        access = self.access_for("settings-vendor@example.com")
+        response = self.client.patch(
+            self.url,
+            {"payment_methods": ["bitcoin"]},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.patch(
+            self.url,
+            {"selling_since_year": 1800},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_customer_cannot_set_vendor_extra_detail_fields(self):
+        access = self.access_for("settings-customer@example.com")
+        response = self.client.patch(
+            self.url,
+            {"tagline": "Sneaky tagline", "also_buying": True},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.tagline, "")
+        self.assertFalse(self.customer.also_buying)
+
     def test_vendor_cannot_blank_out_business_name(self):
         access = self.access_for("settings-vendor@example.com")
         response = self.client.patch(
@@ -628,6 +721,69 @@ class AdminUserDetailTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_admin_can_edit_another_accounts_info(self):
+        response = self.client.patch(
+            f"/api/v1/admin/users/{self.vendor.pk}/",
+            {
+                "first_name": "Danielle",
+                "business_name": "Danielle's Cards",
+                "location": "Las Vegas, NV",
+                "category_tags": ["vintage", "modern"],
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.vendor.refresh_from_db()
+        self.assertEqual(self.vendor.first_name, "Danielle")
+        self.assertEqual(self.vendor.business_name, "Danielle's Cards")
+        self.assertEqual(self.vendor.location, "Las Vegas, NV")
+        self.assertEqual(self.vendor.category_tags, ["vintage", "modern"])
+
+    def test_editing_cannot_blank_out_vendor_business_name(self):
+        response = self.client.patch(
+            f"/api/v1/admin/users/{self.vendor.pk}/",
+            {"business_name": ""},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_editing_rejects_invalid_category_tag(self):
+        response = self.client.patch(
+            f"/api/v1/admin/users/{self.vendor.pk}/",
+            {"category_tags": ["not-a-real-category"]},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_editing_cannot_change_role_or_email(self):
+        response = self.client.patch(
+            f"/api/v1/admin/users/{self.vendor.pk}/",
+            {"role": "admin", "email": "hijacked@example.com"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.vendor.refresh_from_db()
+        self.assertEqual(self.vendor.role, User.Role.VENDOR)
+        self.assertEqual(self.vendor.email, "detail-vendor@example.com")
+
+    def test_non_admin_cannot_edit_another_account(self):
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "detail-vendor@example.com", "password": "s3cret!23"},
+        )
+        access = login.data["access"]
+        response = self.client.patch(
+            f"/api/v1/admin/users/{self.admin.pk}/",
+            {"first_name": "Hacked"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
 
 class PublicVendorDetailTests(APITestCase):
     """Covers the public vendor profile endpoint (floor map click-through target)."""
@@ -655,6 +811,10 @@ class PublicVendorDetailTests(APITestCase):
         self.assertEqual(response.data["location"], "Reno, NV")
         self.assertEqual(response.data["category_tags"], ["vintage"])
 
+    def test_vendor_profile_exposes_date_joined(self):
+        response = self.client.get(f"/api/v1/vendors/{self.vendor.pk}/")
+        self.assertIn(str(self.vendor.date_joined.year), response.data["date_joined"])
+
     def test_vendor_profile_never_exposes_sensitive_fields(self):
         response = self.client.get(f"/api/v1/vendors/{self.vendor.pk}/")
         self.assertNotIn("email", response.data)
@@ -668,6 +828,30 @@ class PublicVendorDetailTests(APITestCase):
         self.assertEqual(self.vendor.vendor_status, User.VendorStatus.PENDING_REVIEW)
         response = self.client.get(f"/api/v1/vendors/{self.vendor.pk}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_social_links_are_exposed_when_set(self):
+        self.vendor.instagram_url = "https://instagram.com/publiccardsco"
+        self.vendor.website_url = "https://publiccardsco.example.com"
+        self.vendor.save()
+        response = self.client.get(f"/api/v1/vendors/{self.vendor.pk}/")
+        self.assertEqual(response.data["instagram_url"], "https://instagram.com/publiccardsco")
+        self.assertEqual(response.data["website_url"], "https://publiccardsco.example.com")
+        self.assertEqual(response.data["youtube_url"], "")
+        self.assertEqual(response.data["x_url"], "")
+
+    def test_extra_detail_fields_are_exposed_when_set(self):
+        self.vendor.tagline = "Vintage cards, fair prices."
+        self.vendor.collection_size = 5000
+        self.vendor.selling_since_year = 2015
+        self.vendor.also_buying = True
+        self.vendor.payment_methods = ["cash", "venmo"]
+        self.vendor.save()
+        response = self.client.get(f"/api/v1/vendors/{self.vendor.pk}/")
+        self.assertEqual(response.data["tagline"], "Vintage cards, fair prices.")
+        self.assertEqual(response.data["collection_size"], 5000)
+        self.assertEqual(response.data["selling_since_year"], 2015)
+        self.assertTrue(response.data["also_buying"])
+        self.assertEqual(response.data["payment_methods"], ["cash", "venmo"])
 
 
 class PublicVendorListTests(APITestCase):
