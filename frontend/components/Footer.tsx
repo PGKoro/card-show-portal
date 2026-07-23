@@ -6,7 +6,7 @@ import { CARDS_FEATURE_ENABLED } from "@/lib/features";
 export function Footer() {
   return (
     <footer className="bg-brand-navy text-gray-300">
-      <div className="mx-auto max-w-6xl px-6 py-12">
+      <div className="mx-auto max-w-7xl px-6 py-12">
         <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-2">
             <p className="text-lg font-bold text-white">Collectors Village</p>

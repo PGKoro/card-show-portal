@@ -8,6 +8,7 @@ from .views import (
     EventDetailView,
     EventListCreateView,
     EventMapView,
+    MyBoothRegistrationListView,
     PendingBoothRegistrationListView,
     VendorEventBoothsView,
     VendorReleaseBoothView,
@@ -27,6 +28,11 @@ urlpatterns = [
         "registrations/pending/",
         PendingBoothRegistrationListView.as_view(),
         name="registrations-pending",
+    ),
+    path(
+        "registrations/mine/",
+        MyBoothRegistrationListView.as_view(),
+        name="registrations-mine",
     ),
     path(
         "registrations/<int:pk>/",

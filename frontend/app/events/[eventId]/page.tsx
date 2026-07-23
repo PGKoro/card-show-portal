@@ -9,6 +9,7 @@ import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { FloorMapCanvas } from "@/components/FloorMapCanvas";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import { getAccessToken } from "@/lib/auth";
 import { formatEventDateRange, getEventImage, type ShowEvent } from "@/lib/events";
 import type { EventMap } from "@/lib/floorMap";
 
@@ -22,7 +23,9 @@ export default function EventDetailPage() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<ShowEvent>(`/events/${params.eventId}/`)
+    apiFetch<ShowEvent>(`/events/${params.eventId}/`, {
+      accessToken: getAccessToken() ?? undefined,
+    })
       .then((data) => {
         if (!cancelled) setEvent(data);
       })
@@ -78,7 +81,7 @@ export default function EventDetailPage() {
   ];
 
   const canSelectBooth =
-    event.status === "upcoming" &&
+    !event.has_started &&
     event.map_visible_to_vendors &&
     user?.role === "vendor" &&
     user?.vendor_status === "approved";
@@ -157,7 +160,10 @@ export default function EventDetailPage() {
               href={`/dashboard/vendor/booths/${event.id}`}
               className="whitespace-nowrap rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy"
             >
-              Select a Booth
+              {event.vendor_registration_status === "requested" ||
+              event.vendor_registration_status === "confirmed"
+                ? "Add Another Booth"
+                : "Select a Booth"}
             </Link>
           </div>
         )}

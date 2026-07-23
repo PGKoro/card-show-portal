@@ -34,7 +34,7 @@ export function NavBar() {
   if (user?.archived) {
     return (
       <header className="border-b border-gray-200 bg-white">
-        <nav className="mx-auto flex min-h-[69px] max-w-6xl items-center px-6 py-2">
+        <nav className="mx-auto flex min-h-[69px] max-w-7xl items-center px-6 py-2">
           <span className="flex items-center gap-2 text-lg font-bold tracking-tight text-brand-navy">
             <CardStackLogo />
             Collectors Village
@@ -50,29 +50,34 @@ export function NavBar() {
 
   return (
     <header className="border-b border-gray-200 bg-white">
-      <nav className="mx-auto flex min-h-[69px] max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-2">
-        <Link href="/" className="flex items-center gap-2 text-lg font-bold tracking-tight text-brand-navy">
-          <CardStackLogo />
-          Collectors Village
-        </Link>
+      <nav className="mx-auto flex min-h-[69px] max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2 sm:px-6">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-base font-bold tracking-tight text-brand-navy sm:text-lg"
+          >
+            <CardStackLogo />
+            Collectors Village
+          </Link>
 
-        <div className="flex items-center gap-6 text-sm font-medium text-gray-600">
-          <Link href="/vendors" className="hover:text-gray-900">
-            Browse Vendors
-          </Link>
-          {CARDS_FEATURE_ENABLED && (
-            <Link href="/cards" className="hover:text-gray-900">
-              Browse Cards
+          <div className="flex items-center gap-4 text-sm font-medium text-gray-600 sm:gap-6">
+            <Link href="/vendors" className="hover:text-gray-900">
+              Browse Vendors
             </Link>
-          )}
-          <Link href="/events" className="hover:text-gray-900">
-            Browse Events
-          </Link>
-          {SET_REGISTRY_FEATURE_ENABLED && (
-            <Link href="/set-registry" className="hover:text-gray-900">
-              Set Registry
+            {CARDS_FEATURE_ENABLED && (
+              <Link href="/cards" className="hover:text-gray-900">
+                Browse Cards
+              </Link>
+            )}
+            <Link href="/events" className="hover:text-gray-900">
+              Browse Events
             </Link>
-          )}
+            {SET_REGISTRY_FEATURE_ENABLED && (
+              <Link href="/set-registry" className="hover:text-gray-900">
+                Set Registry
+              </Link>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -96,7 +101,9 @@ export function NavBar() {
                 )}
               </span>
               <span className="text-sm font-medium text-gray-700">
-                {user.first_name || user.email}
+                {user.role === "vendor" && user.business_name
+                  ? user.business_name
+                  : user.first_name || user.email}
               </span>
             </Link>
           ) : (

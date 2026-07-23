@@ -3,6 +3,16 @@ export type EventStatus = "upcoming" | "past";
 export type VendorDetail = { pk: number; label: string };
 export type VenueDetail = { pk: number; name: string };
 
+/** A vendor's own active booth-registration status on an event, from
+ * their point of view — null if they don't have one (or aren't a vendor/
+ * aren't signed in). Mirrors BoothRegistration.Status minus loyalty_hold's
+ * distinction, since a hold is included as "loyalty_hold" too. */
+export type VendorRegistrationStatus =
+  | "loyalty_hold"
+  | "requested"
+  | "confirmed"
+  | null;
+
 export type ShowEvent = {
   id: number;
   name: string;
@@ -17,6 +27,10 @@ export type ShowEvent = {
   estimated_cards: number;
   estimated_attendees: number;
   status: EventStatus;
+  /** True once start_date has been reached — distinct from `status`,
+   * which only flips to "past" once a multi-day event has fully ended.
+   * Vendor booth registration closes as soon as this is true. */
+  has_started: boolean;
   archived: boolean;
   map_venue: number | null;
   map_venue_detail: VenueDetail | null;
@@ -28,6 +42,10 @@ export type ShowEvent = {
   /** Until this passes, a booth a vendor held at this venue's most recent
    * prior event is held exclusively for them. Null = no loyalty window. */
   loyalty_priority_deadline: string | null;
+  /** Only populated when the requesting user is a vendor — their own
+   * active registration status for this event, or null if they don't
+   * have one yet. */
+  vendor_registration_status: VendorRegistrationStatus;
 };
 
 const EVENT_IMAGES = ["/cardshow1.webp", "/cardshow2.avif", "/cardshow3.jpeg"];

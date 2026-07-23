@@ -36,6 +36,11 @@ class Venue(models.Model):
     map_image_preset = models.CharField(
         max_length=30, blank=True, choices=MAP_IMAGE_PRESET_CHOICES
     )
+    # Hides this venue from the default list (and thus the "pick a venue"
+    # dropdown when creating/editing an event) without touching any event
+    # that already references it — same soft-delete pattern as
+    # Event.archived. Permanent removal is still available via DELETE.
+    archived = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -174,8 +179,30 @@ class Event(models.Model):
         return "upcoming" if reference_date >= datetime.date.today() else "past"
 
     @property
+    def has_started(self):
+        # Distinct from `status`, which only flips to "past" once the whole
+        # (possibly multi-day) event has ENDED — vendor booth registration
+        # closes the moment the show STARTS, even on day one of a multi-day
+        # event that `status` would still call "upcoming".
+        return self.start_date <= datetime.date.today()
+
+    @property
     def vendor_count(self):
-        return self.vendors.count()
+        # Reflects who actually has a confirmed booth at this show — not
+        # the legacy Event.vendors manual attachment (still used by the
+        # ?vendor= filter for a vendor's own profile page, see
+        # EventListCreateView, but no longer what the public "attending
+        # vendors" preview is built from).
+        confirmed = self.booth_registrations.filter(status=BoothRegistration.Status.CONFIRMED)
+        linked = confirmed.filter(vendor__isnull=False).values("vendor_id").distinct().count()
+        unlinked = (
+            confirmed.filter(vendor__isnull=True)
+            .exclude(unlinked_vendor_name="")
+            .values("unlinked_vendor_name")
+            .distinct()
+            .count()
+        )
+        return linked + unlinked
 
 
 class BoothRegistration(models.Model):

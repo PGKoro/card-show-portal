@@ -24,9 +24,13 @@ export function FloorMapCanvas({ map }: { map: EventMap }) {
 
   return (
     <div>
-      <div className="relative w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={displayImageUrl} alt="Event floor map" className="block w-full" />
+      {/* min-w keeps booth markers/labels from crowding into an unreadable
+          mess on narrow screens — below that width the map scrolls
+          horizontally instead of squeezing everything down. */}
+      <div className="overflow-x-auto">
+        <div className="relative w-full min-w-[560px] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={displayImageUrl} alt="Event floor map" className="block w-full" />
 
         {map.sections.map((section) => (
           <div
@@ -50,7 +54,11 @@ export function FloorMapCanvas({ map }: { map: EventMap }) {
             key={booth.id}
             type="button"
             onClick={() => setSelectedBooth(booth)}
-            className="group absolute rounded border-2 border-brand-blue bg-brand-blue/20 hover:bg-brand-blue/30"
+            className={`group absolute rounded border-2 ${
+              booth.status === "taken"
+                ? "border-brand-blue bg-brand-blue/20 hover:bg-brand-blue/30"
+                : "border-green-500 bg-green-500/15 hover:bg-green-500/25"
+            }`}
             style={{
               left: `${percent(booth.position_x)}%`,
               top: `${percent(booth.position_y)}%`,
@@ -62,12 +70,28 @@ export function FloorMapCanvas({ map }: { map: EventMap }) {
               {booth.booth_number}
             </span>
             <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-brand-navy px-2 py-1 text-xs text-white group-hover:block">
-              {booth.vendor_name}
-              {booth.vendor_category_tags.length > 0 &&
-                ` — ${booth.vendor_category_tags.map((tag) => labelFor(tag)).join(", ")}`}
+              {booth.status === "taken"
+                ? `${booth.vendor_name}${
+                    booth.vendor_category_tags.length > 0
+                      ? ` — ${booth.vendor_category_tags.map((tag) => labelFor(tag)).join(", ")}`
+                      : ""
+                  }`
+                : "Available"}
             </span>
           </button>
         ))}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-3 text-xs">
+        <span className="flex items-center gap-1.5">
+          <span className="h-3 w-3 rounded border-2 border-brand-blue bg-brand-blue/20" />
+          Taken
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-3 w-3 rounded border-2 border-green-500 bg-green-500/15" />
+          Available
+        </span>
       </div>
 
       {map.booths.length === 0 && (
@@ -88,8 +112,10 @@ export function FloorMapCanvas({ map }: { map: EventMap }) {
             <p className="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
               Booth {selectedBooth.booth_number}
             </p>
-            <h2 className="mt-1 text-lg font-semibold">{selectedBooth.vendor_name}</h2>
-            {selectedBooth.vendor_category_tags.length > 0 && (
+            <h2 className="mt-1 text-lg font-semibold">
+              {selectedBooth.status === "taken" ? selectedBooth.vendor_name : "Available"}
+            </h2>
+            {selectedBooth.status === "taken" && selectedBooth.vendor_category_tags.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {selectedBooth.vendor_category_tags.map((tag) => (
                   <span
