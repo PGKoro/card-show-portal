@@ -10,6 +10,7 @@ import { ShowCard } from "@/components/ShowCard";
 import { Spinner } from "@/components/Spinner";
 import { VendorCard, type PublicVendor } from "@/components/VendorCard";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
 import type { ShowEvent } from "@/lib/events";
 import { CARDS_FEATURE_ENABLED } from "@/lib/features";
 import { type GradingCompany, type InventoryItem } from "@/lib/mockData";
@@ -52,7 +53,7 @@ export default function HomePage() {
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      apiFetch<{ results: ShowEvent[] }>("/events/"),
+      apiFetch<{ results: ShowEvent[] }>("/events/", { accessToken: getAccessToken() ?? undefined }),
       apiFetch<PaginatedResponse<PublicVendor>>("/vendors/?page_size=10"),
       CARDS_FEATURE_ENABLED
         ? apiFetch<PaginatedResponse<PublicListing>>("/listings/public/?page_size=10")
@@ -101,6 +102,12 @@ export default function HomePage() {
           >
             Browse Vendors
           </Link>
+          <Link
+            href="/events"
+            className="rounded-md border border-white/60 px-5 py-2.5 font-medium text-white hover:bg-white/10"
+          >
+            Browse Events
+          </Link>
           {CARDS_FEATURE_ENABLED && (
             <Link
               href="/cards"
@@ -113,7 +120,7 @@ export default function HomePage() {
       </HeroCarousel>
 
       <section className="bg-white py-16">
-        <div className="mx-auto max-w-6xl px-6">
+        <div className="mx-auto max-w-7xl px-6">
           <div className="mb-6 flex items-end justify-between">
             <h2 className="text-2xl font-semibold">Featured vendors</h2>
             <Link href="/vendors" className="text-sm font-medium text-brand-blue hover:underline">
@@ -138,7 +145,7 @@ export default function HomePage() {
 
       {CARDS_FEATURE_ENABLED && (
         <section className="py-16">
-          <div className="mx-auto max-w-6xl px-6">
+          <div className="mx-auto max-w-7xl px-6">
             <div className="mb-6 flex items-end justify-between">
               <h2 className="text-2xl font-semibold">Recent listings</h2>
               <Link href="/cards" className="text-sm font-medium text-brand-blue hover:underline">
@@ -168,7 +175,7 @@ export default function HomePage() {
 
       {(loading || upcomingShows.length > 0) && (
         <section className="bg-white py-16">
-          <div className="mx-auto max-w-6xl px-6">
+          <div className="mx-auto max-w-7xl px-6">
             <div className="mb-6 flex items-end justify-between">
               <h2 className="text-2xl font-semibold">Upcoming shows</h2>
               <Link href="/events" className="text-sm font-medium text-brand-blue hover:underline">
@@ -190,7 +197,7 @@ export default function HomePage() {
 
       {(loading || pastShows.length > 0) && (
         <section className="py-16">
-          <div className="mx-auto max-w-6xl px-6">
+          <div className="mx-auto max-w-7xl px-6">
             <div className="mb-6 flex items-end justify-between">
               <h2 className="text-2xl font-semibold">Past events</h2>
               <Link href="/events" className="text-sm font-medium text-brand-blue hover:underline">

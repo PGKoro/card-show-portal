@@ -5,14 +5,115 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { InventoryCard } from "@/components/InventoryCard";
 import { Spinner } from "@/components/Spinner";
-import { getApiErrorMessage, apiFetch } from "@/lib/api";
+import { apiFetch, getApiErrorMessage, type PaginatedResponse } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { getAccessToken } from "@/lib/auth";
 import { useCategories } from "@/lib/CategoriesContext";
+import { formatEventDateRange } from "@/lib/events";
 import { CARDS_FEATURE_ENABLED } from "@/lib/features";
+import type { VendorBoothRegistration } from "@/lib/floorMap";
 import { GRADE_VALUES, GRADING_LABELS, type GradingCompany, type InventoryItem } from "@/lib/mockData";
 
 const GRADINGS = Object.keys(GRADING_LABELS) as GradingCompany[];
+
+type BookingBadge = "Requested" | "Accepted" | "Completed";
+
+const BOOKING_BADGE_STYLES: Record<BookingBadge, string> = {
+  Requested: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  Accepted: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  Completed: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+};
+
+function bookingBadge(registration: VendorBoothRegistration): BookingBadge | null {
+  if (registration.status === "requested") return "Requested";
+  if (registration.status === "confirmed") {
+    return registration.event_status === "past" ? "Completed" : "Accepted";
+  }
+  return null;
+}
+
+function MyShowsSection() {
+  const [registrations, setRegistrations] = useState<VendorBoothRegistration[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<PaginatedResponse<VendorBoothRegistration>>(
+      "/events/registrations/mine/?page_size=100",
+      { accessToken: getAccessToken() ?? undefined },
+    )
+      .then((data) => {
+        if (!cancelled) setRegistrations(data.results);
+      })
+      .catch(() => {
+        // Not fatal to the dashboard — just leave the section empty.
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const bookings = registrations
+    .map((registration) => ({ registration, badge: bookingBadge(registration) }))
+    .filter((row): row is { registration: VendorBoothRegistration; badge: BookingBadge } =>
+      row.badge !== null,
+    );
+  const upcoming = bookings
+    .filter((row) => row.registration.event_status === "upcoming")
+    .sort((a, b) => a.registration.event_start_date.localeCompare(b.registration.event_start_date));
+  const completed = bookings
+    .filter((row) => row.registration.event_status === "past")
+    .sort((a, b) => b.registration.event_start_date.localeCompare(a.registration.event_start_date));
+  const ordered = [...upcoming, ...completed];
+
+  return (
+    <div className="mb-8">
+      <h2 className="mb-3 text-lg font-semibold">My Shows</h2>
+
+      {loading ? (
+        <Spinner />
+      ) : ordered.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+          You haven&apos;t requested a booth at any show yet.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {ordered.map(({ registration, badge }) => (
+            <Link
+              key={registration.id}
+              href={`/events/${registration.event}`}
+              className="group rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-gray-800 dark:bg-gray-900"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-semibold group-hover:underline">{registration.event_name}</p>
+                <span
+                  className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${BOOKING_BADGE_STYLES[badge]}`}
+                >
+                  {badge}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {formatEventDateRange({
+                  start_date: registration.event_start_date,
+                  end_date: registration.event_end_date,
+                })}
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                {registration.event_venue}, {registration.event_city}
+              </p>
+              <p className="mt-1 text-xs text-gray-400">
+                Booth {registration.booth_number} · ${registration.price}
+              </p>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 type Listing = {
   id: number;
@@ -152,6 +253,8 @@ export default function VendorDashboardPage() {
             )}
           </div>
         </div>
+
+        <MyShowsSection />
 
         {CARDS_FEATURE_ENABLED && user?.vendor_status === "pending_review" && (
           <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">

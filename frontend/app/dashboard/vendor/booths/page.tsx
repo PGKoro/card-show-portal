@@ -29,7 +29,7 @@ export default function VendorBoothsIndexPage() {
   }, []);
 
   const open = events
-    .filter((e) => e.map_visible_to_vendors)
+    .filter((e) => e.map_visible_to_vendors && !e.has_started)
     .sort((a, b) => a.start_date.localeCompare(b.start_date));
 
   return (
@@ -66,7 +66,12 @@ export default function VendorBoothsIndexPage() {
                     {formatEventDateRange(event)} · {event.venue}, {event.city}
                   </p>
                 </div>
-                <span className="text-sm font-medium text-brand-blue">Choose a booth →</span>
+                <span className="text-sm font-medium text-brand-blue">
+                  {event.vendor_registration_status === "requested" ||
+                  event.vendor_registration_status === "confirmed"
+                    ? "Add another booth →"
+                    : "Choose a booth →"}
+                </span>
               </Link>
             ))}
           </div>

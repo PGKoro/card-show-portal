@@ -11,6 +11,7 @@ import { ShowCard } from "@/components/ShowCard";
 import { SocialLinks } from "@/components/SocialLinks";
 import { Spinner } from "@/components/Spinner";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
 import { useCategories } from "@/lib/CategoriesContext";
 import type { ShowEvent } from "@/lib/events";
 import { CARDS_FEATURE_ENABLED } from "@/lib/features";
@@ -106,7 +107,9 @@ export default function PublicVendorProfilePage() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<PaginatedResponse<ShowEvent>>(`/events/?vendor=${vendorId}&page_size=50`)
+    apiFetch<PaginatedResponse<ShowEvent>>(`/events/?vendor=${vendorId}&page_size=50`, {
+      accessToken: getAccessToken() ?? undefined,
+    })
       .then((data) => {
         if (!cancelled) setEvents(data.results);
       })

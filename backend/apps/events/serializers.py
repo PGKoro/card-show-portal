@@ -15,6 +15,7 @@ def _validate_percentage(value, field_name, allow_zero=True):
 
 class EventSerializer(serializers.ModelSerializer):
     status = serializers.ReadOnlyField()
+    has_started = serializers.ReadOnlyField()
     vendor_count = serializers.ReadOnlyField()
     vendors = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(role=User.Role.VENDOR), many=True, required=False
@@ -32,6 +33,7 @@ class EventSerializer(serializers.ModelSerializer):
     # separate evaluations).
     vendors_detail = serializers.SerializerMethodField()
     map_venue_detail = serializers.SerializerMethodField()
+    vendor_registration_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
@@ -49,6 +51,7 @@ class EventSerializer(serializers.ModelSerializer):
             "estimated_cards",
             "estimated_attendees",
             "status",
+            "has_started",
             "archived",
             "map_venue",
             "map_venue_detail",
@@ -59,6 +62,7 @@ class EventSerializer(serializers.ModelSerializer):
             "map_visible",
             "map_visible_to_vendors",
             "loyalty_priority_deadline",
+            "vendor_registration_status",
         )
         # venue/city are copied from map_venue (see _sync_venue_fields)
         # rather than typed in directly — kept as their own fields since
@@ -67,15 +71,42 @@ class EventSerializer(serializers.ModelSerializer):
         read_only_fields = ("venue", "city")
 
     def get_vendors_detail(self, obj):
-        return [
-            {"pk": vendor.pk, "label": vendor.business_name or vendor.email}
-            for vendor in obj.vendors.all()
-        ]
+        # Who actually has a confirmed booth at this show (see
+        # Event.vendor_count) — the legacy Event.vendors manual picker no
+        # longer feeds this preview. Only vendors with a real linked
+        # account are listed (an unlinked walk-in name has no profile to
+        # badge here, though it still counts towards vendor_count).
+        confirmed = obj.booth_registrations.filter(
+            status=BoothRegistration.Status.CONFIRMED, vendor__isnull=False
+        ).select_related("vendor")
+        seen = {}
+        for registration in confirmed:
+            vendor = registration.vendor
+            seen[vendor.pk] = vendor.business_name or vendor.email
+        return [{"pk": pk, "label": label} for pk, label in seen.items()]
 
     def get_map_venue_detail(self, obj):
         if not obj.map_venue_id:
             return None
         return {"pk": obj.map_venue_id, "name": obj.map_venue.name}
+
+    def get_vendor_registration_status(self, obj):
+        # Lets the frontend tell "you haven't picked a booth yet" (Select a
+        # Booth) apart from "you already have one here" (Add another booth)
+        # without a separate lookup — only ever populated for the requesting
+        # user's own registrations, never another vendor's.
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated or user.role != User.Role.VENDOR:
+            return None
+        registration = (
+            obj.booth_registrations.filter(
+                vendor=user, status__in=BoothRegistration.ACTIVE_STATUSES
+            )
+            .order_by("-requested_at")
+            .first()
+        )
+        return registration.status if registration else None
 
     @staticmethod
     def _sync_venue_fields(validated_data):
@@ -105,7 +136,7 @@ class VenueSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Venue
-        fields = ("id", "name", "city", "booth_count", "created_at", "updated_at")
+        fields = ("id", "name", "city", "archived", "booth_count", "created_at", "updated_at")
         read_only_fields = ("id", "created_at", "updated_at")
 
     def get_booth_count(self, obj):
@@ -373,33 +404,64 @@ class PendingBoothRegistrationSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class PublicBoothSerializer(serializers.Serializer):
+class VendorBoothRegistrationSerializer(serializers.ModelSerializer):
     """
-    Public-facing read-only view of one occupied booth — deliberately never
-    includes price or unlinked_vendor_contact. Built from a confirmed
-    BoothRegistration, not a bare Booth (an empty slot has nothing to show
-    publicly).
+    Read-only — backs GET /events/registrations/mine/, a vendor's own view of
+    every booth they've held or requested, across every event. Unlike
+    BoothRegistrationSerializer (admin, scoped to one event's registrations)
+    or PendingBoothRegistrationSerializer (admin, cross-event but requested-
+    only), this is scoped to the requesting vendor and includes enough event
+    detail (dates, status, venue) to render a "My Shows" card without a
+    second fetch per row.
     """
 
-    id = serializers.IntegerField(source="booth_id")
-    booth_number = serializers.CharField(source="booth.booth_number")
-    position_x = serializers.DecimalField(source="booth.position_x", max_digits=5, decimal_places=2)
-    position_y = serializers.DecimalField(source="booth.position_y", max_digits=5, decimal_places=2)
-    width = serializers.DecimalField(source="booth.width", max_digits=5, decimal_places=2)
-    height = serializers.DecimalField(source="booth.height", max_digits=5, decimal_places=2)
-    vendor_pk = serializers.IntegerField(source="vendor_id")
-    vendor_name = serializers.SerializerMethodField()
-    vendor_category_tags = serializers.SerializerMethodField()
+    event_name = serializers.CharField(source="event.name", read_only=True)
+    event_status = serializers.CharField(source="event.status", read_only=True)
+    event_start_date = serializers.DateField(source="event.start_date", read_only=True)
+    event_end_date = serializers.DateField(source="event.end_date", read_only=True)
+    event_venue = serializers.CharField(source="event.venue", read_only=True)
+    event_city = serializers.CharField(source="event.city", read_only=True)
+    booth_number = serializers.CharField(source="booth.booth_number", read_only=True)
 
-    def get_vendor_name(self, obj):
-        if obj.vendor_id:
-            return obj.vendor.business_name or obj.vendor.email
-        return obj.unlinked_vendor_name
+    class Meta:
+        model = BoothRegistration
+        fields = (
+            "id",
+            "event",
+            "event_name",
+            "event_status",
+            "event_start_date",
+            "event_end_date",
+            "event_venue",
+            "event_city",
+            "booth",
+            "booth_number",
+            "status",
+            "price",
+            "requested_at",
+            "decided_at",
+        )
 
-    def get_vendor_category_tags(self, obj):
-        if obj.vendor_id:
-            return obj.vendor.category_tags
-        return [obj.unlinked_vendor_category] if obj.unlinked_vendor_category else []
+
+class PublicMapBoothSerializer(serializers.Serializer):
+    """
+    Public-facing read-only view of one booth slot on the map — every
+    booth on the venue, not just occupied ones, so a visitor can see the
+    whole floor plan and which spots are still open. Deliberately never
+    includes price or unlinked_vendor_contact; vendor_name/vendor_pk/
+    vendor_category_tags are only meaningful when status is "taken".
+    """
+
+    id = serializers.IntegerField()
+    booth_number = serializers.CharField()
+    position_x = serializers.DecimalField(max_digits=5, decimal_places=2)
+    position_y = serializers.DecimalField(max_digits=5, decimal_places=2)
+    width = serializers.DecimalField(max_digits=5, decimal_places=2)
+    height = serializers.DecimalField(max_digits=5, decimal_places=2)
+    status = serializers.ChoiceField(choices=["available", "taken"])
+    vendor_pk = serializers.IntegerField(allow_null=True)
+    vendor_name = serializers.CharField(allow_blank=True)
+    vendor_category_tags = serializers.ListField(child=serializers.CharField())
 
 
 class EventMapSerializer(serializers.ModelSerializer):
@@ -438,12 +500,61 @@ class EventMapSerializer(serializers.ModelSerializer):
         return obj.map_venue.map_image_preset if obj.map_venue_id else ""
 
     def get_booths(self, obj):
+        # Every booth on the venue's map, not just occupied ones — lets a
+        # visitor see the whole floor plan and which spots are still open,
+        # rather than only ever seeing occupied booths.
         if not obj.map_venue_id:
             return []
-        registrations = obj.booth_registrations.filter(
-            status=BoothRegistration.Status.CONFIRMED
-        ).select_related("booth", "vendor")
-        return PublicBoothSerializer(registrations, many=True).data
+        confirmed_by_booth = {
+            registration.booth_id: registration
+            for registration in obj.booth_registrations.filter(
+                status=BoothRegistration.Status.CONFIRMED
+            ).select_related("booth", "vendor")
+        }
+        rows = []
+        for booth in obj.map_venue.booths.all():
+            registration = confirmed_by_booth.get(booth.id)
+            if registration is None:
+                rows.append(
+                    {
+                        "id": booth.id,
+                        "booth_number": booth.booth_number,
+                        "position_x": booth.position_x,
+                        "position_y": booth.position_y,
+                        "width": booth.width,
+                        "height": booth.height,
+                        "status": "available",
+                        "vendor_pk": None,
+                        "vendor_name": "",
+                        "vendor_category_tags": [],
+                    }
+                )
+                continue
+            if registration.vendor_id:
+                vendor_name = registration.vendor.business_name or registration.vendor.email
+                vendor_category_tags = registration.vendor.category_tags
+            else:
+                vendor_name = registration.unlinked_vendor_name
+                vendor_category_tags = (
+                    [registration.unlinked_vendor_category]
+                    if registration.unlinked_vendor_category
+                    else []
+                )
+            rows.append(
+                {
+                    "id": booth.id,
+                    "booth_number": booth.booth_number,
+                    "position_x": booth.position_x,
+                    "position_y": booth.position_y,
+                    "width": booth.width,
+                    "height": booth.height,
+                    "status": "taken",
+                    "vendor_pk": registration.vendor_id,
+                    "vendor_name": vendor_name,
+                    "vendor_category_tags": vendor_category_tags,
+                }
+            )
+        return PublicMapBoothSerializer(rows, many=True).data
 
     def get_sections(self, obj):
         if not obj.map_venue_id:

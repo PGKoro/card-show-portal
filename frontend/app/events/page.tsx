@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ShowCard } from "@/components/ShowCard";
 import { Spinner } from "@/components/Spinner";
 import { apiFetch } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth";
 import type { ShowEvent } from "@/lib/events";
 
 export default function EventsPage() {
@@ -13,7 +14,7 @@ export default function EventsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<{ results: ShowEvent[] }>("/events/")
+    apiFetch<{ results: ShowEvent[] }>("/events/", { accessToken: getAccessToken() ?? undefined })
       .then((data) => {
         if (!cancelled) setEvents(data.results);
       })

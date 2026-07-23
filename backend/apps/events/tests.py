@@ -75,6 +75,81 @@ class EventApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "Upcoming Show")
 
+    def test_has_started_reflects_start_date_not_end_date(self):
+        response = self.client.get("/api/v1/events/")
+        by_name = {e["name"]: e for e in response.data["results"]}
+        self.assertFalse(by_name["Upcoming Show"]["has_started"])
+        self.assertTrue(by_name["Past Show"]["has_started"])
+
+        # A multi-day event that started today but ends later is still
+        # "upcoming" per `status` (end_date-based) yet already has_started.
+        ongoing = Event.objects.create(
+            name="Ongoing Show",
+            venue="Some Hall",
+            city="Some City",
+            start_date=datetime.date.today(),
+            end_date=datetime.date.today() + datetime.timedelta(days=2),
+        )
+        response = self.client.get(f"/api/v1/events/{ongoing.pk}/")
+        self.assertEqual(response.data["status"], "upcoming")
+        self.assertTrue(response.data["has_started"])
+
+    def test_vendor_registration_status_is_null_for_anonymous_and_non_vendor(self):
+        anonymous = self.client.get(f"/api/v1/events/{self.upcoming.pk}/")
+        self.assertIsNone(anonymous.data["vendor_registration_status"])
+
+        access = self.access_for("events-cust@example.com")
+        as_customer = self.client.get(
+            f"/api/v1/events/{self.upcoming.pk}/", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        self.assertIsNone(as_customer.data["vendor_registration_status"])
+
+    def test_vendor_registration_status_reflects_own_active_registration(self):
+        booth = Booth.objects.create(
+            venue=self.venue,
+            booth_number="1",
+            position_x=0,
+            position_y=0,
+            width=5,
+            height=5,
+            price=10,
+        )
+        BoothRegistration.objects.create(
+            event=self.upcoming,
+            booth=booth,
+            vendor=self.vendor,
+            status=BoothRegistration.Status.REQUESTED,
+            price=10,
+        )
+        access = self.access_for("events-vendor@example.com")
+        response = self.client.get(
+            f"/api/v1/events/{self.upcoming.pk}/", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        self.assertEqual(response.data["vendor_registration_status"], "requested")
+
+    def test_vendor_registration_status_ignores_declined_or_released_registrations(self):
+        booth = Booth.objects.create(
+            venue=self.venue,
+            booth_number="2",
+            position_x=0,
+            position_y=0,
+            width=5,
+            height=5,
+            price=10,
+        )
+        BoothRegistration.objects.create(
+            event=self.upcoming,
+            booth=booth,
+            vendor=self.vendor,
+            status=BoothRegistration.Status.DECLINED,
+            price=10,
+        )
+        access = self.access_for("events-vendor@example.com")
+        response = self.client.get(
+            f"/api/v1/events/{self.upcoming.pk}/", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        self.assertIsNone(response.data["vendor_registration_status"])
+
     def test_vendor_filter_includes_manually_attached_and_confirmed_booth_events(self):
         # Manually attached via the legacy Event.vendors picker.
         self.upcoming.vendors.add(self.vendor)
@@ -124,6 +199,11 @@ class EventApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_admin_can_create_event_with_vendors(self):
+        # The legacy Event.vendors picker still saves and still drives the
+        # ?vendor= filter (see test_vendor_filter_includes_manually_attached...
+        # below), but vendor_count/vendors_detail — the public "attending
+        # vendors" preview — only reflect confirmed booth registrations now,
+        # so they stay empty here despite the manual attachment.
         access = self.access_for("events-admin@example.com")
         response = self.client.post(
             "/api/v1/events/",
@@ -141,6 +221,28 @@ class EventApiTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["vendor_count"], 0)
+        self.assertEqual(response.data["vendors_detail"], [])
+
+    def test_vendor_count_and_detail_reflect_confirmed_booth_registrations(self):
+        booth = Booth.objects.create(
+            venue=self.venue, booth_number="C1", position_x=1, position_y=1, width=5, height=5,
+            price="20.00",
+        )
+        BoothRegistration.objects.create(
+            event=self.upcoming, booth=booth, vendor=self.vendor,
+            status=BoothRegistration.Status.CONFIRMED, price=booth.price,
+        )
+        # Manual attachment alone (no confirmed booth) shouldn't count.
+        other_vendor = User.objects.create_user(
+            email="events-vendor2@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Other Vendor Co",
+        )
+        self.upcoming.vendors.add(other_vendor)
+
+        response = self.client.get(f"/api/v1/events/{self.upcoming.pk}/")
         self.assertEqual(response.data["vendor_count"], 1)
         self.assertEqual(
             response.data["vendors_detail"], [{"pk": self.vendor.pk, "label": "Vendor Co"}]
@@ -217,7 +319,9 @@ class EventApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "Renamed Show")
         self.assertEqual(response.data["estimated_attendees"], 9999)
-        self.assertEqual(response.data["vendor_count"], 1)
+        # vendor_count no longer reflects the manual `vendors` field — see
+        # test_vendor_count_and_detail_reflect_confirmed_booth_registrations.
+        self.assertEqual(response.data["vendor_count"], 0)
 
     def test_admin_can_update_a_past_event(self):
         # Regression guard: nothing should make past events read-only.
@@ -475,6 +579,44 @@ class VenueTests(APITestCase):
         by_city = self.client.get("/api/v1/venues/?search=chicago", **self.admin_auth())
         self.assertEqual(by_city.data["count"], 1)
         self.assertEqual(by_city.data["results"][0]["name"], "McCormick Place")
+
+    def test_archived_venue_is_hidden_from_the_default_list(self):
+        Venue.objects.create(name="Active Hall", city="City")
+        Venue.objects.create(name="Archived Hall", city="City", archived=True)
+
+        response = self.client.get("/api/v1/venues/", **self.admin_auth())
+        names = [v["name"] for v in response.data["results"]]
+        self.assertIn("Active Hall", names)
+        self.assertNotIn("Archived Hall", names)
+
+    def test_status_archived_filter_returns_only_archived_venues(self):
+        Venue.objects.create(name="Active Hall", city="City")
+        archived = Venue.objects.create(name="Archived Hall", city="City", archived=True)
+
+        response = self.client.get("/api/v1/venues/?status=archived", **self.admin_auth())
+        names = [v["name"] for v in response.data["results"]]
+        self.assertEqual(names, [archived.name])
+
+    def test_admin_can_archive_and_restore_a_venue(self):
+        venue = Venue.objects.create(name="Toggle Hall", city="City")
+
+        archive = self.client.patch(
+            f"/api/v1/venues/{venue.pk}/", {"archived": True}, format="json", **self.admin_auth()
+        )
+        self.assertEqual(archive.status_code, status.HTTP_200_OK)
+        self.assertTrue(archive.data["archived"])
+
+        restore = self.client.patch(
+            f"/api/v1/venues/{venue.pk}/", {"archived": False}, format="json", **self.admin_auth()
+        )
+        self.assertEqual(restore.status_code, status.HTTP_200_OK)
+        self.assertFalse(restore.data["archived"])
+
+    def test_admin_can_permanently_delete_an_archived_venue(self):
+        venue = Venue.objects.create(name="Doomed Hall", city="City", archived=True)
+        response = self.client.delete(f"/api/v1/venues/{venue.pk}/", **self.admin_auth())
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Venue.objects.filter(pk=venue.pk).exists())
 
 
 class VenueMapTests(APITestCase):
@@ -943,7 +1085,7 @@ class PublicEventMapTests(APITestCase):
         response = self.client.get(f"/api/v1/events/{self.event.pk}/map/", **self.admin_auth())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_returns_only_confirmed_registrations_with_correct_data(self):
+    def test_includes_every_booth_confirmed_or_not_with_correct_status(self):
         self.venue.map_image_preset = "single_hall"
         self.venue.save()
         self.event.map_venue = self.venue
@@ -957,7 +1099,8 @@ class PublicEventMapTests(APITestCase):
             unlinked_vendor_category="vintage",
             unlinked_vendor_contact="555-1234",
         )
-        # A pending request should never show up publicly.
+        # A pending request doesn't make the booth "taken" publicly — it's
+        # still shown as available.
         pending_booth = Booth.objects.create(
             venue=self.venue, booth_number="3", position_x=20, position_y=0, width=5, height=5
         )
@@ -970,17 +1113,25 @@ class PublicEventMapTests(APITestCase):
 
         response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data["booths"]), 2)
+        self.assertEqual(len(response.data["booths"]), 3)
 
         by_number = {b["booth_number"]: b for b in response.data["booths"]}
         linked = by_number["1"]
+        self.assertEqual(linked["status"], "taken")
         self.assertEqual(linked["vendor_pk"], self.vendor.pk)
         self.assertEqual(linked["vendor_name"], "Booth Vendor Co")
         self.assertEqual(linked["vendor_category_tags"], ["vintage"])
 
         unlinked = by_number["2"]
+        self.assertEqual(unlinked["status"], "taken")
         self.assertIsNone(unlinked["vendor_pk"])
         self.assertEqual(unlinked["vendor_name"], "Walk-in Dealer")
+
+        pending = by_number["3"]
+        self.assertEqual(pending["status"], "available")
+        self.assertIsNone(pending["vendor_pk"])
+        self.assertEqual(pending["vendor_name"], "")
+        self.assertEqual(pending["vendor_category_tags"], [])
 
     def test_never_exposes_price_or_unlinked_contact(self):
         self.venue.map_image_preset = "single_hall"
@@ -1215,7 +1366,7 @@ class VendorBoothSelectionTests(APITestCase):
             name="Sel Show",
             venue="Sel Hall",
             city="Sel City",
-            start_date=datetime.date.today(),
+            start_date=datetime.date.today() + datetime.timedelta(days=10),
             map_venue=self.venue,
             map_visible_to_vendors=True,
         )
@@ -1248,6 +1399,22 @@ class VendorBoothSelectionTests(APITestCase):
 
     def test_cannot_select_a_booth_for_an_archived_event(self):
         self.event.archived = True
+        self.event.save()
+        response = self.client.post(
+            f"/api/v1/events/{self.event.pk}/booths/{self.booth.pk}/select/", **self.vendor_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_404_when_event_has_started(self):
+        self.event.start_date = datetime.date.today()
+        self.event.save()
+        response = self.client.get(
+            f"/api/v1/events/{self.event.pk}/vendor-booths/", **self.vendor_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cannot_select_a_booth_once_event_has_started(self):
+        self.event.start_date = datetime.date.today()
         self.event.save()
         response = self.client.post(
             f"/api/v1/events/{self.event.pk}/booths/{self.booth.pk}/select/", **self.vendor_auth()
@@ -1324,6 +1491,110 @@ class VendorBoothSelectionTests(APITestCase):
             f"/api/v1/events/registrations/{registration_id}/release/", **self.other_vendor_auth()
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class MyBoothRegistrationsTests(APITestCase):
+    """Covers GET /events/registrations/mine/ — a vendor's own booking history."""
+
+    def setUp(self):
+        self.vendor = User.objects.create_user(
+            email="mine-vendor@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Mine Vendor",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        self.other_vendor = User.objects.create_user(
+            email="mine-other@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Other Vendor",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+        self.customer = User.objects.create_user(
+            email="mine-cust@example.com", password="s3cret!23"
+        )
+        self.venue = Venue.objects.create(name="Mine Hall", city="Mine City")
+        self.booth = Booth.objects.create(
+            venue=self.venue,
+            booth_number="1",
+            position_x=0,
+            position_y=0,
+            width=5,
+            height=5,
+            price=25,
+        )
+        self.event = Event.objects.create(
+            name="Mine Show",
+            venue="Mine Hall",
+            city="Mine City",
+            start_date=datetime.date.today(),
+            map_venue=self.venue,
+            map_visible_to_vendors=True,
+        )
+
+    def access_for(self, email, password="s3cret!23"):
+        login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
+        return login.data["access"]
+
+    def vendor_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('mine-vendor@example.com')}"}
+
+    def test_returns_only_the_requesting_vendors_own_registrations(self):
+        BoothRegistration.objects.create(
+            event=self.event,
+            booth=self.booth,
+            vendor=self.vendor,
+            status=BoothRegistration.Status.REQUESTED,
+            price=25,
+        )
+        other_booth = Booth.objects.create(
+            venue=self.venue,
+            booth_number="2",
+            position_x=10,
+            position_y=0,
+            width=5,
+            height=5,
+            price=25,
+        )
+        BoothRegistration.objects.create(
+            event=self.event,
+            booth=other_booth,
+            vendor=self.other_vendor,
+            status=BoothRegistration.Status.REQUESTED,
+            price=25,
+        )
+
+        response = self.client.get("/api/v1/events/registrations/mine/", **self.vendor_auth())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        row = response.data["results"][0]
+        self.assertEqual(row["event_name"], "Mine Show")
+        self.assertEqual(row["booth_number"], "1")
+        self.assertEqual(row["status"], "requested")
+
+    def test_includes_every_status_not_just_active(self):
+        BoothRegistration.objects.create(
+            event=self.event,
+            booth=self.booth,
+            vendor=self.vendor,
+            status=BoothRegistration.Status.RELEASED,
+            price=25,
+        )
+        response = self.client.get("/api/v1/events/registrations/mine/", **self.vendor_auth())
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["status"], "released")
+
+    def test_non_vendor_cannot_view_this_endpoint(self):
+        access = self.access_for("mine-cust@example.com")
+        response = self.client.get(
+            "/api/v1/events/registrations/mine/", HTTP_AUTHORIZATION=f"Bearer {access}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_anonymous_cannot_view_this_endpoint(self):
+        response = self.client.get("/api/v1/events/registrations/mine/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class LoyaltyHoldTests(APITestCase):

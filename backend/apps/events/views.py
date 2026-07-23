@@ -18,6 +18,7 @@ from .serializers import (
     EventMapSerializer,
     EventSerializer,
     PendingBoothRegistrationSerializer,
+    VendorBoothRegistrationSerializer,
     VendorBoothSerializer,
     VenueMapSerializer,
     VenueSectionSerializer,
@@ -158,7 +159,11 @@ class VenueListCreateView(generics.ListCreateAPIView):
     """
     GET/POST /api/v1/venues/ — admin-only listing/creation of venues.
     Supports ?search= (name/city) so the venue picker stays usable once
-    there are more than a handful of venues.
+    there are more than a handful of venues. Every *non-archived* venue by
+    default (including the "pick a venue" dropdown on the event form);
+    ?status=archived lists archived ones instead, same split as
+    EventListCreateView — an archived venue stays fully intact for any
+    event that already references it, it's just hidden from new picks.
     """
 
     permission_classes = [IsAuthenticated, IsAdminRole]
@@ -167,6 +172,8 @@ class VenueListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         queryset = Venue.objects.all()
         search = self.request.query_params.get("search", "").strip()
+        status = self.request.query_params.get("status", "").strip()
+        queryset = queryset.filter(archived=(status == "archived"))
         if search:
             queryset = queryset.filter(Q(name__icontains=search) | Q(city__icontains=search))
         return queryset
@@ -411,6 +418,25 @@ def _is_expired_hold(registration, event):
     )
 
 
+class MyBoothRegistrationListView(generics.ListAPIView):
+    """
+    GET /api/v1/events/registrations/mine/ — every booth registration the
+    requesting vendor has ever held or requested, across every event, newest
+    first. Backs the vendor dashboard's "My Shows" cards (requested/
+    accepted/completed at a glance) — unlike PendingBoothRegistrationListView
+    (admin, requested-only, cross-vendor) this is scoped to one vendor and
+    includes every status so they can see their own history.
+    """
+
+    permission_classes = [IsAuthenticated, IsApprovedVendor]
+    serializer_class = VendorBoothRegistrationSerializer
+
+    def get_queryset(self):
+        return BoothRegistration.objects.filter(vendor=self.request.user).select_related(
+            "event", "booth"
+        )
+
+
 class VendorEventBoothsView(APIView):
     """
     GET /api/v1/events/<id>/vendor-booths/ — the venue's map image/sections
@@ -425,7 +451,12 @@ class VendorEventBoothsView(APIView):
 
     def get(self, request, pk):
         event = get_object_or_404(Event, pk=pk)
-        if not event.map_venue_id or not event.map_visible_to_vendors or event.archived:
+        if (
+            not event.map_venue_id
+            or not event.map_visible_to_vendors
+            or event.archived
+            or event.has_started
+        ):
             raise Http404
         venue = event.map_venue
 
@@ -498,7 +529,12 @@ class VendorSelectBoothView(APIView):
 
     def post(self, request, pk, booth_id):
         event = get_object_or_404(Event, pk=pk)
-        if not event.map_venue_id or not event.map_visible_to_vendors or event.archived:
+        if (
+            not event.map_venue_id
+            or not event.map_visible_to_vendors
+            or event.archived
+            or event.has_started
+        ):
             raise Http404
         booth = get_object_or_404(Booth, pk=booth_id, venue_id=event.map_venue_id)
 

@@ -16,6 +16,7 @@ export type Venue = {
   id: number;
   name: string;
   city: string;
+  archived: boolean;
   booth_count: number;
   created_at: string;
   updated_at: string;
@@ -109,7 +110,35 @@ export type PendingBoothRegistration = {
   requested_at: string;
 };
 
-/** Read-only, public-safe shape — never includes price or contact info. */
+/**
+ * One row from a vendor's own booking history (GET /events/registrations/mine/)
+ * — every status, across every event, with enough event detail to render a
+ * "My Shows" card without a second fetch per row.
+ */
+export type VendorBoothRegistration = {
+  id: number;
+  event: number;
+  event_name: string;
+  event_status: "upcoming" | "past";
+  event_start_date: string;
+  event_end_date: string | null;
+  event_venue: string;
+  event_city: string;
+  booth: number;
+  booth_number: string;
+  status: RegistrationStatus;
+  price: string;
+  requested_at: string;
+  decided_at: string | null;
+};
+
+/**
+ * Read-only, public-safe shape — never includes price or contact info.
+ * Every booth on the venue's map is included, not just occupied ones, so
+ * `status` says whether a given slot is open or already taken;
+ * vendor_pk/vendor_name/vendor_category_tags are only meaningful when
+ * status is "taken".
+ */
 export type PublicBooth = {
   id: number;
   booth_number: string;
@@ -117,6 +146,7 @@ export type PublicBooth = {
   position_y: string;
   width: string;
   height: string;
+  status: "available" | "taken";
   vendor_pk: number | null;
   vendor_name: string;
   vendor_category_tags: string[];

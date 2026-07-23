@@ -8,10 +8,17 @@ import { formatEventDateRange, type ShowEvent } from "@/lib/events";
 export function ShowCard({ show }: { show: ShowEvent }) {
   const { user } = useAuth();
   const canSelectBooth =
-    show.status === "upcoming" &&
+    !show.has_started &&
     show.map_visible_to_vendors &&
     user?.role === "vendor" &&
     user?.vendor_status === "approved";
+  // A loyalty hold hasn't been acted on yet (it's system-created, not
+  // something the vendor requested) — still prompt "Select a Booth" so
+  // they notice and claim it. Only an actual requested/confirmed
+  // registration means they already have a spot here.
+  const alreadyHasBooth =
+    show.vendor_registration_status === "requested" ||
+    show.vendor_registration_status === "confirmed";
 
   return (
     <div className="group flex flex-col gap-1.5 rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-gray-800">
@@ -44,7 +51,7 @@ export function ShowCard({ show }: { show: ShowEvent }) {
           href={`/dashboard/vendor/booths/${show.id}`}
           className="mt-2 rounded-md bg-brand-blue px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-brand-navy"
         >
-          Select a Booth
+          {alreadyHasBooth ? "Add Another Booth" : "Select a Booth"}
         </Link>
       )}
     </div>
