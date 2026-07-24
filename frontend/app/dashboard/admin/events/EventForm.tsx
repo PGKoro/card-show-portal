@@ -20,6 +20,8 @@ export type EventFormPayload = {
   estimated_attendees: number;
   vendors: number[];
   map_venue: number;
+  announcement: string;
+  notes: string;
 };
 
 export type EventFormInitialValues = {
@@ -32,6 +34,8 @@ export type EventFormInitialValues = {
   vendors_detail: VendorDetail[];
   map_venue: number | null;
   map_venue_detail: VenueDetail | null;
+  announcement?: string;
+  notes?: string;
 };
 
 export function EventForm({
@@ -47,9 +51,7 @@ export function EventForm({
   const [description, setDescription] = useState(initialValues?.description ?? "");
   const [startDate, setStartDate] = useState(initialValues?.start_date ?? "");
   const [endDate, setEndDate] = useState(initialValues?.end_date ?? "");
-  const [estimatedCards, setEstimatedCards] = useState(
-    String(initialValues?.estimated_cards ?? 0),
-  );
+  const [estimatedCards, setEstimatedCards] = useState(String(initialValues?.estimated_cards ?? 0));
   const [estimatedAttendees, setEstimatedAttendees] = useState(
     String(initialValues?.estimated_attendees ?? 0),
   );
@@ -59,9 +61,11 @@ export function EventForm({
   const [selectedVenue, setSelectedVenue] = useState<VenueDetail | null>(
     initialValues?.map_venue_detail ?? null,
   );
+  const [announcement, setAnnouncement] = useState(initialValues?.announcement ?? "");
+  const [notes, setNotes] = useState(initialValues?.notes ?? "");
+
   const [venueSearch, setVenueSearch] = useState("");
   const [venueResults, setVenueResults] = useState<Venue[]>([]);
-
   const [vendorSearch, setVendorSearch] = useState("");
   const [vendorResults, setVendorResults] = useState<VendorSearchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -75,10 +79,9 @@ export function EventForm({
         setVenueResults([]);
         return;
       }
-      apiFetch<PaginatedResponse<Venue>>(
-        `/venues/?search=${encodeURIComponent(venueSearch)}&page_size=10`,
-        { accessToken: getAccessToken() ?? undefined },
-      ).then((data) => {
+      apiFetch<PaginatedResponse<Venue>>(`/venues/?search=${encodeURIComponent(venueSearch)}&page_size=10`, {
+        accessToken: getAccessToken() ?? undefined,
+      }).then((data) => {
         if (!cancelled) setVenueResults(data.results);
       });
     }, 300);
@@ -139,9 +142,12 @@ export function EventForm({
         estimated_attendees: Number(estimatedAttendees) || 0,
         vendors: selectedVendors.map((v) => v.pk),
         map_venue: selectedVenue.pk,
+        announcement,
+        notes,
       });
     } catch (err) {
       setError(getApiErrorMessage(err, "Could not save event. Please try again."));
+    } finally {
       setSubmitting(false);
     }
   }
@@ -214,8 +220,7 @@ export function EventForm({
           </>
         )}
         <p className="mt-1 text-xs text-gray-400">
-          Don&apos;t see the venue you need? Create it in Manage Venues first, then it&apos;ll show
-          up here.
+          Don&apos;t see the venue you need? Create it in Manage Venues first, then it&apos;ll show up here.
         </p>
       </div>
 
@@ -257,6 +262,34 @@ export function EventForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="announcement" className="block text-sm font-medium text-amber-700 dark:text-amber-300">
+          Announcement <span className="font-normal text-gray-400">(public)</span>
+        </label>
+        <textarea
+          id="announcement"
+          rows={4}
+          value={announcement}
+          onChange={(e) => setAnnouncement(e.target.value)}
+          placeholder="Public announcement shown on the event page..."
+          className="mt-1 w-full rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-950 placeholder:text-amber-400 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="notes" className="block text-sm font-medium text-brand-blue dark:text-blue-300">
+          Notes <span className="font-normal text-gray-400">(admin only)</span>
+        </label>
+        <textarea
+          id="notes"
+          rows={4}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Internal note for admins only..."
+          className="mt-1 w-full rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-blue-950 placeholder:text-blue-400 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-100"
         />
       </div>
 
@@ -340,9 +373,9 @@ export function EventForm({
       <button
         type="submit"
         disabled={submitting}
-        className="rounded-md bg-brand-blue px-5 py-2.5 font-medium text-white hover:bg-brand-navy disabled:opacity-50"
+        className="rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy disabled:opacity-50"
       >
-        {submitting ? "Saving…" : submitLabel}
+        {submitting ? "Saving..." : submitLabel}
       </button>
     </form>
   );

@@ -123,6 +123,15 @@ export default function EventDetailPage() {
 
         <p className="mt-4 max-w-2xl text-gray-600 dark:text-gray-300">{event.description}</p>
 
+        {event.announcement && event.announcement.trim() && (
+          <div className="mt-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-sm dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+            <p className="text-sm font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+              Announcement
+            </p>
+            <p className="mt-1 text-sm">{event.announcement}</p>
+          </div>
+        )}
+
         {event.vendors_detail.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-1.5">
             {event.vendors_detail.map((vendor) => (

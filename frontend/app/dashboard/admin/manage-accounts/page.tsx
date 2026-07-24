@@ -6,13 +6,12 @@ import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "@/components/ConfirmDialogProvider";
 import { Pagination } from "@/components/Pagination";
 import { Spinner } from "@/components/Spinner";
-import { useAuth } from "@/lib/AuthContext";
-import { ApiError, getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
+import { ApiError, apiFetch, getApiErrorMessage, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
-
-const PAGE_SIZE = 5;
+import { useAuth } from "@/lib/AuthContext";
 
 type Role = "customer" | "vendor" | "admin";
+type SearchRole = Role | "";
 
 type UserResult = {
   pk: number;
@@ -21,16 +20,20 @@ type UserResult = {
   last_name: string;
   role: Role;
   archived: boolean;
+  flagged: boolean;
+  notes: string;
 };
 
 type Feedback = { id: number; text: string };
 
-const ROLES: Role[] = ["customer", "vendor", "admin"];
+const PAGE_SIZE = 5;
 
 export default function ManageAccountsPage() {
   const confirm = useConfirm();
   const { user: currentUser } = useAuth();
   const [search, setSearch] = useState("");
+  const [role, setRole] = useState<SearchRole>("");
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [results, setResults] = useState<UserResult[]>([]);
   const [hasNext, setHasNext] = useState(false);
@@ -45,10 +48,7 @@ export default function ManageAccountsPage() {
     const timeout = setTimeout(() => {
       if (cancelled) return;
 
-      // Search-only: an empty query used to fall through to the backend as
-      // `?search=`, which returns every account paginated. Require an
-      // actual email fragment before hitting the API at all.
-      if (!search.trim()) {
+      if (!search.trim() && !role && !flaggedOnly) {
         setResults([]);
         setHasNext(false);
         setHasPrevious(false);
@@ -57,10 +57,16 @@ export default function ManageAccountsPage() {
       }
 
       setLoading(true);
-      apiFetch<PaginatedResponse<UserResult>>(
-        `/admin/users/?search=${encodeURIComponent(search)}&page_size=${PAGE_SIZE}&page=${page}`,
-        { accessToken: getAccessToken() ?? undefined },
-      )
+      const params = new URLSearchParams();
+      if (search.trim()) params.set("search", search.trim());
+      if (role) params.set("role", role);
+      if (flaggedOnly) params.set("flagged", "true");
+      params.set("page_size", String(PAGE_SIZE));
+      params.set("page", String(page));
+
+      apiFetch<PaginatedResponse<UserResult>>(`/admin/users/?${params.toString()}`, {
+        accessToken: getAccessToken() ?? undefined,
+      })
         .then((data) => {
           if (cancelled) return;
           setResults(data.results);
@@ -78,13 +84,13 @@ export default function ManageAccountsPage() {
         .finally(() => {
           if (!cancelled) setLoading(false);
         });
-    }, 300);
+    }, 250);
 
     return () => {
       cancelled = true;
       clearTimeout(timeout);
     };
-  }, [search, page]);
+  }, [search, role, flaggedOnly, page]);
 
   function pushFeedback(text: string) {
     const note: Feedback = { id: nextFeedbackId.current++, text };
@@ -94,19 +100,19 @@ export default function ManageAccountsPage() {
     }, 4000);
   }
 
-  async function handleSetRole(user: UserResult, role: Role) {
-    if (role === user.role) return;
+  async function handleSetRole(user: UserResult, nextRole: Role) {
+    if (nextRole === user.role) return;
 
     const ok = await confirm({
-      title: `Change ${user.email} to ${role}?`,
+      title: `Change ${user.email} to ${nextRole}?`,
       message:
-        role === "admin"
+        nextRole === "admin"
           ? "They'll get full admin access to this site."
-          : role === "vendor"
+          : nextRole === "vendor"
             ? "They'll need approval before they can list inventory."
             : "They'll lose vendor or admin access.",
       confirmLabel: "Change role",
-      tone: role === "admin" ? "danger" : "default",
+      tone: nextRole === "admin" ? "danger" : "default",
     });
     if (!ok) return;
 
@@ -115,12 +121,12 @@ export default function ManageAccountsPage() {
       const updated = await apiFetch<UserResult>(`/admin/users/${user.pk}/set-role/`, {
         method: "POST",
         accessToken: getAccessToken() ?? undefined,
-        body: { role },
+        body: { role: nextRole },
       });
       setResults((current) =>
         current.map((item) => (item.pk === user.pk ? { ...item, role: updated.role } : item)),
       );
-      pushFeedback(`${user.email} is now a${role === "admin" ? "n" : ""} ${role}.`);
+      pushFeedback(`${user.email} is now a${nextRole === "admin" ? "n" : ""} ${nextRole}.`);
     } catch (err) {
       pushFeedback(getApiErrorMessage(err, `Could not update ${user.email}.`));
     } finally {
@@ -128,13 +134,13 @@ export default function ManageAccountsPage() {
     }
   }
 
-  async function handleToggleActive(user: UserResult) {
+  async function handleToggleArchived(user: UserResult) {
     const archiving = !user.archived;
     const ok = await confirm({
       title: archiving ? `Archive ${user.email}?` : `Restore ${user.email}?`,
       message: archiving
-        ? "They can still log in, but every page will redirect them to a \"contact support\" notice. Their listings and public profile (if a vendor) will be hidden."
-        : "They'll regain full access immediately.",
+        ? "Archived accounts are inactive until restored."
+        : "They'll regain access immediately.",
       confirmLabel: archiving ? "Archive" : "Restore",
       tone: archiving ? "danger" : "default",
     });
@@ -142,16 +148,15 @@ export default function ManageAccountsPage() {
 
     setUpdatingPk(user.pk);
     try {
-      const updated = await apiFetch<UserResult>(
-        `/admin/users/${user.pk}/${archiving ? "archive" : "restore"}/`,
-        { method: "POST", accessToken: getAccessToken() ?? undefined },
-      );
+      const updated = await apiFetch<UserResult>(`/admin/users/${user.pk}/`, {
+        method: "PATCH",
+        accessToken: getAccessToken() ?? undefined,
+        body: { archived: archiving },
+      });
       setResults((current) =>
-        current.map((item) =>
-          item.pk === user.pk ? { ...item, archived: updated.archived } : item,
-        ),
+        current.map((item) => (item.pk === user.pk ? { ...item, archived: updated.archived } : item)),
       );
-      pushFeedback(archiving ? `${user.email} has been archived.` : `${user.email} restored.`);
+      pushFeedback(archiving ? `${user.email} archived.` : `${user.email} restored.`);
     } catch (err) {
       pushFeedback(getApiErrorMessage(err, `Could not update ${user.email}.`));
     } finally {
@@ -159,26 +164,30 @@ export default function ManageAccountsPage() {
     }
   }
 
-  async function handleDelete(user: UserResult) {
+  async function handleToggleFlagged(user: UserResult) {
+    const flagging = !user.flagged;
     const ok = await confirm({
-      title: `Permanently delete ${user.email}?`,
-      message:
-        "This can't be undone. Their listings will be deleted too, and any booth registrations will be unlinked.",
-      confirmLabel: "Delete account",
-      tone: "danger",
+      title: flagging ? `Flag ${user.email}?` : `Unflag ${user.email}?`,
+      message: flagging
+        ? "This marks the account for admin review."
+        : "This removes the moderation flag.",
+      confirmLabel: flagging ? "Flag" : "Unflag",
+      tone: flagging ? "danger" : "default",
     });
     if (!ok) return;
 
     setUpdatingPk(user.pk);
     try {
-      await apiFetch(`/admin/users/${user.pk}/`, {
-        method: "DELETE",
+      const updated = await apiFetch<UserResult>(`/admin/users/${user.pk}/${flagging ? "flag" : "unflag"}/`, {
+        method: "POST",
         accessToken: getAccessToken() ?? undefined,
       });
-      setResults((current) => current.filter((item) => item.pk !== user.pk));
-      pushFeedback(`${user.email} has been deleted.`);
+      setResults((current) =>
+        current.map((item) => (item.pk === user.pk ? { ...item, flagged: updated.flagged } : item)),
+      );
+      pushFeedback(flagging ? `${user.email} flagged.` : `${user.email} unflagged.`);
     } catch (err) {
-      pushFeedback(getApiErrorMessage(err, `Could not delete ${user.email}.`));
+      pushFeedback(getApiErrorMessage(err, `Could not update ${user.email}.`));
     } finally {
       setUpdatingPk(null);
     }
@@ -187,16 +196,51 @@ export default function ManageAccountsPage() {
   return (
     <main className="flex-1 px-6 py-12">
       <div className="mx-auto max-w-3xl">
-        <Link
-          href="/dashboard/admin"
-          className="mb-4 inline-block text-sm font-medium text-brand-blue hover:underline"
-        >
+        <Link href="/dashboard/admin" className="mb-4 inline-block text-sm font-medium text-brand-blue hover:underline">
           ← Admin Tools
         </Link>
+
         <h1 className="mb-1 text-2xl font-semibold">Manage Accounts</h1>
         <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
-          Search for a user to change their role, archive/restore their account, or delete it.
+          Search by role, name, email, or business name. Combine role + name for a narrower search.
         </p>
+
+        <div className="mb-4 grid gap-3 md:grid-cols-3">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search by name, email, or business name"
+            className="rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
+          />
+          <select
+            value={role}
+            onChange={(e) => {
+              setRole(e.target.value as SearchRole);
+              setPage(1);
+            }}
+            className="rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
+          >
+            <option value="">All roles</option>
+            <option value="customer">Customer</option>
+            <option value="vendor">Vendor</option>
+            <option value="admin">Admin</option>
+          </select>
+          <label className="flex items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700">
+            <input
+              type="checkbox"
+              checked={flaggedOnly}
+              onChange={(e) => {
+                setFlaggedOnly(e.target.checked);
+                setPage(1);
+              }}
+            />
+            Flagged only
+          </label>
+        </div>
 
         <div className="mb-4 space-y-2">
           {feedback.map((note) => (
@@ -209,92 +253,77 @@ export default function ManageAccountsPage() {
           ))}
         </div>
 
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          placeholder="Search by email..."
-          className="mb-4 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-        />
-
         {loading ? (
           <Spinner />
         ) : results.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
-            {search.trim() ? "No matching users." : "Search for a user by email to manage their account."}
+          <p className="rounded-md border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+            {search.trim() || role || flaggedOnly
+              ? "No matching users."
+              : "Search for a user by name or filter by role to manage their account."}
           </p>
         ) : (
-          <div className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white shadow-sm dark:divide-gray-800 dark:border-gray-800">
+          <div className="space-y-3">
             {results.map((user) => {
-              const isSelf = user.pk === currentUser?.pk;
-              const isUpdating = updatingPk === user.pk;
+              const isSelf = currentUser?.pk === user.pk;
+              const hasStickyNote = Boolean(user.notes?.trim());
               return (
-                <div key={user.pk} className="flex flex-col gap-3 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <p className="font-medium">
-                        {[user.first_name, user.last_name].filter(Boolean).join(" ") || user.email}
-                        {user.archived && (
-                          <span className="ml-2 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                            Archived
+                <div
+                  key={user.pk}
+                  className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h2 className="font-semibold">{[user.first_name, user.last_name].filter(Boolean).join(" ") || user.email}</h2>
+                        {user.flagged && (
+                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800 dark:bg-red-950 dark:text-red-300">
+                            Flagged
                           </span>
                         )}
+                        {hasStickyNote && (
+                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                              🗒 Note
+                            </span>
+                          )}
+                      </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {user.email} · <span className="capitalize">{user.role}</span>
+                        {user.archived && " · Archived"}
                       </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
+                      {hasStickyNote && (
+                        <p className="mt-2 max-w-xl rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
+                          {user.notes.slice(0, 120)}{user.notes.length > 120 ? "…" : ""}
+                        </p>
+                      )}
                     </div>
-                    <div className="flex gap-2">
-                      {ROLES.map((role) => {
-                        const isCurrent = role === user.role;
-                        return (
-                          <button
-                            key={role}
-                            onClick={() => handleSetRole(user, role)}
-                            disabled={isCurrent || isUpdating}
-                            className={`rounded-full px-3.5 py-1.5 text-sm font-medium capitalize disabled:opacity-50 ${
-                              isCurrent
-                                ? "bg-brand-blue text-white"
-                                : "border border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
-                            }`}
-                          >
-                            {role}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 border-t border-gray-100 pt-3 dark:border-gray-800">
-                    <Link
-                      href={`/dashboard/admin/manage-accounts/${user.pk}`}
-                      className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
-                    >
-                      Manage
-                    </Link>
-                    {isSelf ? (
-                      <p className="text-xs text-gray-400 dark:text-gray-500">
-                        You can&apos;t archive or delete your own account.
-                      </p>
-                    ) : (
-                      <>
+                    <div className="flex flex-wrap gap-2">
+                      <Link
+                        href={`/dashboard/admin/manage-accounts/${user.pk}`}
+                        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
+                      >
+                        Manage
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFlagged(user)}
+                        disabled={updatingPk === user.pk}
+                        className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
+                      >
+                        {user.flagged ? "Unflag" : "Flag"}
+                      </button>
+                      {isSelf ? (
+                        <p className="text-xs text-gray-400 dark:text-gray-500">You can&apos;t archive or delete your own account.</p>
+                      ) : (
                         <button
-                          onClick={() => handleToggleActive(user)}
-                          disabled={isUpdating}
+                          type="button"
+                          onClick={() => handleToggleArchived(user)}
+                          disabled={updatingPk === user.pk}
                           className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
                         >
                           {user.archived ? "Restore" : "Archive"}
                         </button>
-                        <button
-                          onClick={() => handleDelete(user)}
-                          disabled={isUpdating}
-                          className="rounded-md border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
-                        >
-                          Delete
-                        </button>
-                      </>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
               );

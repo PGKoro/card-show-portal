@@ -35,15 +35,12 @@ type AccountDetail = {
   payment_methods: string[];
   vendor_status: "pending_review" | "approved" | "rejected" | null;
   archived: boolean;
+  notes: string;
   date_joined: string;
 };
 
-// Lets an admin edit another account's name and role-specific details
-// directly (the "Manage" action in Manage Accounts) — same fields as that
-// user's own Profile Settings, just admin-driven. Role, email, vendor
-// approval status, and archived state stay untouched here; those have
-// their own dedicated actions (role buttons, archive/restore, delete) back
-// on the Manage Accounts list.
+const ROLE_OPTIONS: Role[] = ["customer", "vendor", "admin"];
+
 export default function ManageAccountDetailPage() {
   const { userId } = useParams<{ userId: string }>();
   const { categories } = useCategories();
@@ -52,6 +49,9 @@ export default function ManageAccountDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<Role>("customer");
+  const [notes, setNotes] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [businessName, setBusinessName] = useState("");
@@ -71,6 +71,7 @@ export default function ManageAccountDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [roleSubmitting, setRoleSubmitting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +81,9 @@ export default function ManageAccountDetailPage() {
       .then((data) => {
         if (cancelled) return;
         setAccount(data);
+        setEmail(data.email);
+        setRole(data.role);
+        setNotes(data.notes ?? "");
         setFirstName(data.first_name);
         setLastName(data.last_name);
         setBusinessName(data.business_name);
@@ -122,7 +126,7 @@ export default function ManageAccountDetailPage() {
     );
   }
 
-  async function handleSubmit(event: FormEvent) {
+  async function saveMainDetails(event: FormEvent) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
@@ -133,6 +137,9 @@ export default function ManageAccountDetailPage() {
         method: "PATCH",
         accessToken: getAccessToken() ?? undefined,
         body: {
+          email,
+          notes,
+          role,
           first_name: firstName,
           last_name: lastName,
           category_tags: categoryTags,
@@ -156,11 +163,34 @@ export default function ManageAccountDetailPage() {
         },
       });
       setAccount(updated);
+      setEmail(updated.email);
+      setRole(updated.role);
+      setNotes(updated.notes ?? "");
       setSuccess(true);
     } catch (err) {
       setError(getApiErrorMessage(err, "Could not save changes. Please try again."));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function saveRole() {
+    if (!account || role === account.role) return;
+    setRoleSubmitting(true);
+    setError(null);
+    try {
+      const updated = await apiFetch<AccountDetail>(`/admin/users/${userId}/set-role/`, {
+        method: "POST",
+        accessToken: getAccessToken() ?? undefined,
+        body: { role },
+      });
+      setAccount(updated);
+      setRole(updated.role);
+      setSuccess(true);
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Could not update role. Please try again."));
+    } finally {
+      setRoleSubmitting(false);
     }
   }
 
@@ -178,10 +208,7 @@ export default function ManageAccountDetailPage() {
     return (
       <main className="flex flex-1 flex-col items-center justify-center px-6 py-24 text-center">
         <h1 className="text-2xl font-semibold">Account not found</h1>
-        <Link
-          href="/dashboard/admin/manage-accounts"
-          className="mt-4 text-sm font-medium text-brand-blue hover:underline"
-        >
+        <Link href="/dashboard/admin/manage-accounts" className="mt-4 text-sm font-medium text-brand-blue hover:underline">
           &larr; Back to Manage Accounts
         </Link>
       </main>
@@ -191,10 +218,7 @@ export default function ManageAccountDetailPage() {
   return (
     <main className="flex-1 px-6 py-12">
       <div className="mx-auto max-w-2xl">
-        <Link
-          href="/dashboard/admin/manage-accounts"
-          className="mb-4 inline-block text-sm font-medium text-brand-blue hover:underline"
-        >
+        <Link href="/dashboard/admin/manage-accounts" className="mb-4 inline-block text-sm font-medium text-brand-blue hover:underline">
           ← Manage Accounts
         </Link>
         <h1 className="mb-1 text-2xl font-semibold">
@@ -203,7 +227,20 @@ export default function ManageAccountDetailPage() {
         <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
           {account.email} · <span className="capitalize">{account.role}</span>
           {account.archived && " · Archived"}
+          {account.notes.trim() && (
+            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+              🗒 Note
+            </span>
+          )}
         </p>
+        {account.notes.trim() && (
+          <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 shadow-sm dark:border-blue-900 dark:bg-blue-950 dark:text-blue-100">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+              Sticky note
+            </div>
+            <p className="whitespace-pre-wrap">{account.notes}</p>
+          </div>
+        )}
 
         {success && (
           <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
@@ -211,70 +248,52 @@ export default function ManageAccountDetailPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={saveMainDetails} className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label htmlFor="firstName" className="block text-sm font-medium">
-                First name
-              </label>
-              <input
-                id="firstName"
-                required
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-              />
+              <label htmlFor="email" className="block text-sm font-medium">Email</label>
+              <input id="email" required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent" />
             </div>
             <div>
-              <label htmlFor="lastName" className="block text-sm font-medium">
-                Last name
-              </label>
-              <input
-                id="lastName"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-              />
+              <label htmlFor="role" className="block text-sm font-medium">Role</label>
+              <div className="mt-1 flex gap-2">
+                <select id="role" value={role} onChange={(e) => setRole(e.target.value as Role)} className="w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent">
+                  {ROLE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+                <button type="button" onClick={saveRole} disabled={roleSubmitting || role === account.role} className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-900">
+                  {roleSubmitting ? "Saving…" : "Change role"}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label htmlFor="firstName" className="block text-sm font-medium">First name</label>
+              <input id="firstName" required value={firstName} onChange={(e) => setFirstName(e.target.value)} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent" />
+            </div>
+            <div>
+              <label htmlFor="lastName" className="block text-sm font-medium">Last name</label>
+              <input id="lastName" value={lastName} onChange={(e) => setLastName(e.target.value)} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent" />
+            </div>
+            <div>
+              <label htmlFor="notes" className="block text-sm font-medium text-blue-700 dark:text-blue-300">Admin notes</label>
+              <textarea id="notes" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Internal reminders, follow-up items, future changes..." className="mt-1 w-full rounded-md border border-blue-300 px-3 py-2 dark:border-blue-700 dark:bg-transparent" />
             </div>
           </div>
 
           {account.role === "vendor" && (
             <div className="space-y-4 rounded-md border border-gray-200 p-4 dark:border-gray-800">
               <div>
-                <label htmlFor="businessName" className="block text-sm font-medium">
-                  Business name
-                </label>
-                <input
-                  id="businessName"
-                  required
-                  value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-                />
+                <label htmlFor="businessName" className="block text-sm font-medium">Business name</label>
+                <input id="businessName" required value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent" />
               </div>
               <div>
-                <label htmlFor="businessDescription" className="block text-sm font-medium">
-                  Description
-                </label>
-                <textarea
-                  id="businessDescription"
-                  rows={3}
-                  value={businessDescription}
-                  onChange={(e) => setBusinessDescription(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-                />
+                <label htmlFor="businessDescription" className="block text-sm font-medium">Description</label>
+                <textarea id="businessDescription" rows={3} value={businessDescription} onChange={(e) => setBusinessDescription(e.target.value)} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent" />
               </div>
               <div>
-                <label htmlFor="location" className="block text-sm font-medium">
-                  Location
-                </label>
-                <input
-                  id="location"
-                  placeholder="City, State"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-                />
+                <label htmlFor="location" className="block text-sm font-medium">Location</label>
+                <input id="location" placeholder="City, State" value={location} onChange={(e) => setLocation(e.target.value)} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent" />
               </div>
               <div>
                 <span className="block text-sm font-medium">Categories they sell</span>
@@ -284,11 +303,7 @@ export default function ManageAccountDetailPage() {
                       type="button"
                       key={category.slug}
                       onClick={() => toggleCategory(category.slug)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                        categoryTags.includes(category.slug)
-                          ? "border-brand-blue bg-brand-blue text-white"
-                          : "border-gray-300 text-gray-600 dark:border-gray-700 dark:text-gray-300"
-                      }`}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium ${categoryTags.includes(category.slug) ? "border-brand-blue bg-brand-blue text-white" : "border-gray-300 text-gray-600 dark:border-gray-700 dark:text-gray-300"}`}
                     >
                       {category.name}
                     </button>
@@ -296,94 +311,32 @@ export default function ManageAccountDetailPage() {
                 </div>
               </div>
               <div className="space-y-3 border-t border-gray-100 pt-4 dark:border-gray-800">
-                <span className="block text-sm font-medium">
-                  Social links <span className="font-normal text-gray-400">(optional)</span>
-                </span>
-                <input
-                  type="text"
-                  placeholder="Instagram (e.g. instagram.com/yourshop)"
-                  value={instagramUrl}
-                  onChange={(e) => setInstagramUrl(e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
-                />
-                <input
-                  type="text"
-                  placeholder="YouTube"
-                  value={youtubeUrl}
-                  onChange={(e) => setYoutubeUrl(e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
-                />
-                <input
-                  type="text"
-                  placeholder="X (Twitter)"
-                  value={xUrl}
-                  onChange={(e) => setXUrl(e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
-                />
-                <input
-                  type="text"
-                  placeholder="Website"
-                  value={websiteUrl}
-                  onChange={(e) => setWebsiteUrl(e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
-                />
+                <span className="block text-sm font-medium">Social links <span className="font-normal text-gray-400">(optional)</span></span>
+                <input type="text" placeholder="Instagram (e.g. instagram.com/yourshop)" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent" />
+                <input type="text" placeholder="YouTube" value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent" />
+                <input type="text" placeholder="X (Twitter)" value={xUrl} onChange={(e) => setXUrl(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent" />
+                <input type="text" placeholder="Website" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent" />
               </div>
-
               <div className="space-y-3 border-t border-gray-100 pt-4 dark:border-gray-800">
-                <span className="block text-sm font-medium">
-                  Additional details <span className="font-normal text-gray-400">(optional)</span>
-                </span>
-                <input
-                  type="text"
-                  maxLength={100}
-                  placeholder="Short tagline (e.g. Vintage cards, fair prices)"
-                  value={tagline}
-                  onChange={(e) => setTagline(e.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
-                />
+                <span className="block text-sm font-medium">Additional details <span className="font-normal text-gray-400">(optional)</span></span>
+                <input type="text" maxLength={100} placeholder="Short tagline (e.g. Vintage cards, fair prices)" value={tagline} onChange={(e) => setTagline(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent" />
                 <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="number"
-                    min={0}
-                    placeholder="Approx. cards in collection"
-                    value={collectionSize}
-                    onChange={(e) => setCollectionSize(e.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
-                  />
-                  <input
-                    type="number"
-                    min={1900}
-                    max={new Date().getFullYear()}
-                    placeholder="Selling/collecting since (year)"
-                    value={sellingSinceYear}
-                    onChange={(e) => setSellingSinceYear(e.target.value)}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
-                  />
+                  <input type="number" min={0} placeholder="Approx. cards in collection" value={collectionSize} onChange={(e) => setCollectionSize(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent" />
+                  <input type="number" min={1900} max={new Date().getFullYear()} placeholder="Selling/collecting since (year)" value={sellingSinceYear} onChange={(e) => setSellingSinceYear(e.target.value)} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent" />
                 </div>
                 <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={alsoBuying}
-                    onChange={(e) => setAlsoBuying(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300"
-                  />
+                  <input type="checkbox" checked={alsoBuying} onChange={(e) => setAlsoBuying(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
                   Also buying, not just selling
                 </label>
                 <div>
-                  <span className="block text-xs font-medium text-gray-500 dark:text-gray-400">
-                    Payment methods accepted at their booth
-                  </span>
+                  <span className="block text-xs font-medium text-gray-500 dark:text-gray-400">Payment methods accepted at their booth</span>
                   <div className="mt-1.5 flex flex-wrap gap-2">
                     {PAYMENT_METHOD_OPTIONS.map((method) => (
                       <button
                         type="button"
                         key={method.value}
                         onClick={() => togglePaymentMethod(method.value)}
-                        className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                          paymentMethods.includes(method.value)
-                            ? "border-brand-blue bg-brand-blue text-white"
-                            : "border-gray-300 text-gray-600 dark:border-gray-700 dark:text-gray-300"
-                        }`}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium ${paymentMethods.includes(method.value) ? "border-brand-blue bg-brand-blue text-white" : "border-gray-300 text-gray-600 dark:border-gray-700 dark:text-gray-300"}`}
                       >
                         {method.label}
                       </button>
@@ -391,7 +344,6 @@ export default function ManageAccountDetailPage() {
                   </div>
                 </div>
               </div>
-
               <div className="border-t border-gray-100 pt-4 dark:border-gray-800">
                 <span className="block text-sm font-medium">Profile color</span>
                 <div className="mt-2 flex gap-2">
@@ -402,11 +354,7 @@ export default function ManageAccountDetailPage() {
                       onClick={() => setProfileTheme(theme.value)}
                       title={theme.label}
                       aria-label={theme.label}
-                      className={`h-8 w-8 rounded-full ${theme.swatchClassName} ${
-                        profileTheme === theme.value
-                          ? "ring-2 ring-offset-2 ring-brand-blue dark:ring-offset-gray-950"
-                          : ""
-                      }`}
+                      className={`h-8 w-8 rounded-full ${theme.swatchClassName} ${profileTheme === theme.value ? "ring-2 ring-offset-2 ring-brand-blue dark:ring-offset-gray-950" : ""}`}
                     />
                   ))}
                 </div>
@@ -416,21 +364,14 @@ export default function ManageAccountDetailPage() {
 
           {account.role === "customer" && (
             <div>
-              <span className="block text-sm font-medium">
-                Interested categories{" "}
-                <span className="font-normal text-gray-400">(optional)</span>
-              </span>
+              <span className="block text-sm font-medium">Interested categories <span className="font-normal text-gray-400">(optional)</span></span>
               <div className="mt-2 flex flex-wrap gap-2">
                 {categories.map((category) => (
                   <button
                     type="button"
                     key={category.slug}
                     onClick={() => toggleCategory(category.slug)}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                      categoryTags.includes(category.slug)
-                        ? "border-brand-blue bg-brand-blue text-white"
-                        : "border-gray-300 text-gray-600 dark:border-gray-700 dark:text-gray-300"
-                    }`}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium ${categoryTags.includes(category.slug) ? "border-brand-blue bg-brand-blue text-white" : "border-gray-300 text-gray-600 dark:border-gray-700 dark:text-gray-300"}`}
                   >
                     {category.name}
                   </button>
@@ -441,11 +382,7 @@ export default function ManageAccountDetailPage() {
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="rounded-md bg-brand-blue px-5 py-2.5 font-medium text-white hover:bg-brand-navy disabled:opacity-50"
-          >
+          <button type="submit" disabled={submitting} className="rounded-md bg-brand-blue px-5 py-2.5 font-medium text-white hover:bg-brand-navy disabled:opacity-50">
             {submitting ? "Saving…" : "Save changes"}
           </button>
         </form>

@@ -53,10 +53,13 @@ class EventSerializer(serializers.ModelSerializer):
             "status",
             "has_started",
             "archived",
+            "announcement",
+            "notes",
             "map_venue",
             "map_venue_detail",
+
             # Deliberately NOT the venue's map image here — whether a map
-            # image has been uploaded is only exposed through the gated
+
             # /map/ endpoint (see EventMapView), never on the general event
             # payload. The visibility booleans alone don't leak that.
             "map_visible",
@@ -69,6 +72,14 @@ class EventSerializer(serializers.ModelSerializer):
         # search (?search=) and every event-display consumer read them
         # straight off the event rather than through map_venue_detail.
         read_only_fields = ("venue", "city")
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not (user and user.is_authenticated and (user.is_superuser or user.role == User.Role.ADMIN)):
+            data.pop("notes", None)
+        return data
 
     def get_vendors_detail(self, obj):
         # Who actually has a confirmed booth at this show (see
