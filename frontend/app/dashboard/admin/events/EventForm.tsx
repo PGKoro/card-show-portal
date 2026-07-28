@@ -20,12 +20,9 @@ export type EventFormPayload = {
   estimated_attendees: number;
   vendors: number[];
   map_venue: number;
-<<<<<<< HEAD
   announcement: string;
   notes: string;
-=======
   registration_deadline: string | null;
->>>>>>> origin/main
 };
 
 export type EventFormInitialValues = {
@@ -38,12 +35,9 @@ export type EventFormInitialValues = {
   vendors_detail: VendorDetail[];
   map_venue: number | null;
   map_venue_detail: VenueDetail | null;
-<<<<<<< HEAD
   announcement?: string;
   notes?: string;
-=======
   registration_deadline: string | null;
->>>>>>> origin/main
 };
 
 export function EventForm({
@@ -69,15 +63,11 @@ export function EventForm({
   const [selectedVenue, setSelectedVenue] = useState<VenueDetail | null>(
     initialValues?.map_venue_detail ?? null,
   );
-<<<<<<< HEAD
   const [announcement, setAnnouncement] = useState(initialValues?.announcement ?? "");
   const [notes, setNotes] = useState(initialValues?.notes ?? "");
-
-=======
   const [registrationDeadline, setRegistrationDeadline] = useState(
     toDatetimeLocalValue(initialValues?.registration_deadline ?? null),
   );
->>>>>>> origin/main
   const [venueSearch, setVenueSearch] = useState("");
   const [venueResults, setVenueResults] = useState<Venue[]>([]);
   const [vendorSearch, setVendorSearch] = useState("");
@@ -156,14 +146,11 @@ export function EventForm({
         estimated_attendees: Number(estimatedAttendees) || 0,
         vendors: selectedVendors.map((v) => v.pk),
         map_venue: selectedVenue.pk,
-<<<<<<< HEAD
         announcement,
         notes,
-=======
         registration_deadline: registrationDeadline
           ? new Date(registrationDeadline).toISOString()
           : null,
->>>>>>> origin/main
       });
     } catch (err) {
       setError(getApiErrorMessage(err, "Could not save event. Please try again."));

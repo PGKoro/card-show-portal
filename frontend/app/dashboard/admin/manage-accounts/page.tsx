@@ -100,40 +100,6 @@ export default function ManageAccountsPage() {
     }, 4000);
   }
 
-  async function handleSetRole(user: UserResult, nextRole: Role) {
-    if (nextRole === user.role) return;
-
-    const ok = await confirm({
-      title: `Change ${user.email} to ${nextRole}?`,
-      message:
-        nextRole === "admin"
-          ? "They'll get full admin access to this site."
-          : nextRole === "vendor"
-            ? "They'll need approval before they can list inventory."
-            : "They'll lose vendor or admin access.",
-      confirmLabel: "Change role",
-      tone: nextRole === "admin" ? "danger" : "default",
-    });
-    if (!ok) return;
-
-    setUpdatingPk(user.pk);
-    try {
-      const updated = await apiFetch<UserResult>(`/admin/users/${user.pk}/set-role/`, {
-        method: "POST",
-        accessToken: getAccessToken() ?? undefined,
-        body: { role: nextRole },
-      });
-      setResults((current) =>
-        current.map((item) => (item.pk === user.pk ? { ...item, role: updated.role } : item)),
-      );
-      pushFeedback(`${user.email} is now a${nextRole === "admin" ? "n" : ""} ${nextRole}.`);
-    } catch (err) {
-      pushFeedback(getApiErrorMessage(err, `Could not update ${user.email}.`));
-    } finally {
-      setUpdatingPk(null);
-    }
-  }
-
   async function handleToggleArchived(user: UserResult) {
     const archiving = !user.archived;
     const ok = await confirm({

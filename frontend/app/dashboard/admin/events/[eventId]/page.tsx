@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { AuthPageSpinner } from "@/components/AuthPageSpinner";
@@ -130,7 +130,6 @@ function FloorPlanPanel({ event, onEventUpdate }: { event: ShowEvent; onEventUpd
 
 export default function EditEventPage() {
   const params = useParams<{ eventId: string }>();
-  const router = useRouter();
   const [event, setEvent] = useState<ShowEvent | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -195,12 +194,9 @@ export default function EditEventPage() {
             vendors_detail: event.vendors_detail,
             map_venue: event.map_venue,
             map_venue_detail: event.map_venue_detail,
-<<<<<<< HEAD
             announcement: event.announcement ?? "",
             notes: event.notes ?? "",
-=======
             registration_deadline: event.registration_deadline,
->>>>>>> origin/main
           }}
           onSubmit={handleSubmit}
         />

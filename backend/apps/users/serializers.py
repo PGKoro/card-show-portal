@@ -217,12 +217,31 @@ class AdminUserDetailSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         value = value.strip()
-        if User.objects.exclude(pk=self.instance.pk if self.instance else None).filter(email__iexact=value).exists():
+        if User.objects.exclude(pk=self.instance.pk if self.instance else None).filter(
+            email__iexact=value
+        ).exists():
             raise serializers.ValidationError("A user is already registered with this email address.")
         return value
 
     def update(self, instance, validated_data):
-        for field in ("email", "notes", "first_name", "last_name", "business_name", "business_description", "location", "instagram_url", "youtube_url", "x_url", "website_url", "profile_theme", "tagline", "collection_size", "selling_since_year", "also_buying"):
+        for field in (
+            "email",
+            "notes",
+            "first_name",
+            "last_name",
+            "business_name",
+            "business_description",
+            "location",
+            "instagram_url",
+            "youtube_url",
+            "x_url",
+            "website_url",
+            "profile_theme",
+            "tagline",
+            "collection_size",
+            "selling_since_year",
+            "also_buying",
+        ):
             if field in validated_data:
                 setattr(instance, field, validated_data.pop(field))
         if "category_tags" in validated_data:

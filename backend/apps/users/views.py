@@ -161,7 +161,10 @@ class ArchiveUserView(APIView):
     def post(self, request, pk):
         user = get_object_or_404(User, pk=pk)
         if user.pk == request.user.pk:
-            return Response({"detail": "You can't archive your own account."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "You can't archive your own account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         user.archived = True
         user.save(update_fields=["archived"])
         return Response(UserDetailsSerializer(user).data)
@@ -218,7 +221,10 @@ class SetUserRoleView(APIView):
     def post(self, request, pk):
         new_role = request.data.get("role")
         if new_role not in (User.Role.CUSTOMER, User.Role.VENDOR, User.Role.ADMIN):
-            return Response({"role": "Must be one of: customer, vendor, admin."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"role": "Must be one of: customer, vendor, admin."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         user = get_object_or_404(User, pk=pk)
         user.role = new_role
@@ -277,5 +283,7 @@ class PublicVendorListView(generics.ListAPIView):
         )
         search = self.request.query_params.get("search", "").strip()
         if search:
-            queryset = queryset.filter(Q(business_name__icontains=search) | Q(location__icontains=search))
+            queryset = queryset.filter(
+                Q(business_name__icontains=search) | Q(location__icontains=search)
+            )
         return queryset.order_by("business_name")
