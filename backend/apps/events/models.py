@@ -117,6 +117,42 @@ class VenueSection(models.Model):
         return f"{label or self.category} section ({self.venue.name})"
 
 
+class VenueAmenity(models.Model):
+    """
+    A manually-authored "custom vendor" marker on a Venue's floor map (e.g. a
+    sponsor table or food truck that isn't a real registered vendor and has
+    no account on the site) — a brand name + optional logo, sized/positioned
+    like a real Booth since it isn't just an icon. Position/size use the
+    same percentage convention as Booth/VenueSection. Persists across every
+    Event at that venue, same as Booth/VenueSection.
+
+    The fixed facility types (ticketing, seating, food, bathrooms,
+    merchandise) originally lived here too, but those are constant per
+    venue, so they belong baked into the floor plan image/builder itself
+    rather than placed as separate runtime markers.
+    """
+
+    venue = models.ForeignKey(Venue, on_delete=models.CASCADE, related_name="amenities")
+    # The brand name shown on the marker.
+    label = models.CharField(max_length=100, blank=True)
+    logo_image = models.ImageField(upload_to="amenity_logos/", null=True, blank=True)
+
+    position_x = models.DecimalField(max_digits=5, decimal_places=2)
+    position_y = models.DecimalField(max_digits=5, decimal_places=2)
+    width = models.DecimalField(max_digits=5, decimal_places=2)
+    height = models.DecimalField(max_digits=5, decimal_places=2)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["id"]
+        verbose_name_plural = "venue amenities"
+
+    def __str__(self):
+        return f"{self.label or 'Custom vendor'} ({self.venue.name})"
+
+
 class Event(models.Model):
     """
     A card show/convention. Publicly browsable; only admins can create or
@@ -169,6 +205,11 @@ class Event(models.Model):
     # loyalty_hold status) — nobody else can request it. Null means no
     # loyalty window (booths open to everyone immediately).
     loyalty_priority_deadline = models.DateTimeField(null=True, blank=True)
+    # Displayed to vendors as a countdown on the event page (customers see a
+    # countdown to start_date instead). Informational only — doesn't gate
+    # booth requests, which already close at has_started. Null means no
+    # deadline is shown.
+    registration_deadline = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

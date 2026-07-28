@@ -52,6 +52,26 @@ export type VenueSection = {
   updated_at: string;
 };
 
+/**
+ * A manually-authored "custom vendor" marker on a Venue's floor plan (e.g. a
+ * sponsor table or food truck) — a brand name + optional logo, resizable
+ * like a real Booth, deliberately not linked to any vendor account. Fixed
+ * facility types (ticketing, seating, food, etc.) are constant per venue,
+ * so those get drawn directly into the floor plan image/builder instead of
+ * being a separate runtime marker.
+ */
+export type VenueAmenity = {
+  id: number;
+  label: string;
+  logo_image_url: string | null;
+  position_x: string;
+  position_y: string;
+  width: string;
+  height: string;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Backs the admin venue floor-plan editor (GET /venues/:id/map/). */
 export type VenueMap = {
   id: number;
@@ -60,6 +80,7 @@ export type VenueMap = {
   map_image_preset: string;
   booths: VenueBooth[];
   sections: VenueSection[];
+  amenities: VenueAmenity[];
 };
 
 export type RegistrationStatus =
@@ -150,6 +171,10 @@ export type PublicBooth = {
   vendor_pk: number | null;
   vendor_name: string;
   vendor_category_tags: string[];
+  /** Any other booths this same (linked) vendor holds at this event. */
+  other_booth_numbers: string[];
+  /** False (not just absent) for available/unlinked booths — safe to filter on directly. */
+  also_buying: boolean;
 };
 
 export type EventMap = {
@@ -161,6 +186,7 @@ export type EventMap = {
   map_visible: boolean;
   booths: PublicBooth[];
   sections: VenueSection[];
+  amenities: VenueAmenity[];
 };
 
 export type BoothAvailability =
@@ -229,17 +255,102 @@ export function resolveMapImage(map: {
 }
 
 /**
- * Standard booth footprints (percentages of the map image) — "large" is
- * just two "small" booths pushed together lengthwise (same depth, double
- * width), matching how real card shows sell booths in table units. Sized
- * small enough that a single map can comfortably hold 50-100+ booths
- * (a 4%-wide booth still leaves room for ~25 across a row with gaps to
- * spare). These are quick-placement defaults, not hard limits: a booth can
- * still be dragged/resized freely on the canvas after being placed.
+ * Standard booth footprint (percentage of the map image) used for
+ * click-to-place and Generate Grid. Sized small enough that a single map
+ * can comfortably hold 50-100+ booths (a 4%-wide booth still leaves room
+ * for ~25 across a row with gaps to spare). Just a quick-placement
+ * default, not a hard limit: a booth can still be dragged/resized freely
+ * on the canvas after being placed. A vendor needing more than one table
+ * just claims a second booth — see PublicBooth.other_booth_numbers —
+ * rather than this needing a separate double-wide size.
  */
-export const BOOTH_SIZE_PRESETS = {
-  small: { label: "Small", w: 4, h: 3 },
-  large: { label: "Large", w: 8, h: 3 },
-} as const;
+export const BOOTH_SIZE = { w: 4, h: 3 } as const;
 
-export type BoothSizeKey = keyof typeof BOOTH_SIZE_PRESETS;
+/**
+ * Auto-generates a precisely-aligned grid of booths instead of placing them
+ * one at a time by hand — matches the common real-world convention of
+ * booths arranged back-to-back in pairs across a walking aisle, with plain
+ * numeric booth numbers (no row letters). For each "band" of two rows, the
+ * top row numbers count up by `columnStep` per column (e.g. 200, 202, 204,
+ * ...) and the bottom row is always top+1 (facing across the aisle, e.g.
+ * 201, 203, 205...); the next band down starts `bandStep` higher (e.g. the
+ * 300s, then 400s). `columnsPerGroup` controls how many columns sit flush
+ * against each other before a wider aisle gap — 2 gives the classic
+ * "pair of booths, then an aisle" layout.
+ */
+export type AisleGridParams = {
+  rows: number;
+  columns: number;
+  columnsPerGroup: number;
+  startNumber: number;
+  columnStep: number;
+  bandStep: number;
+  boothWidth: number;
+  boothHeight: number;
+};
+
+export type GeneratedBooth = {
+  booth_number: string;
+  position_x: number;
+  position_y: number;
+  width: number;
+  height: number;
+};
+
+const GRID_MARGIN_X = 2;
+const GRID_MARGIN_Y = 5;
+const GRID_WITHIN_GROUP_GAP = 0.4;
+const GRID_AISLE_GAP = 3;
+const GRID_WITHIN_BAND_GAP = 1;
+const GRID_BAND_GAP = 4;
+
+function aisleGridGeometry(params: AisleGridParams) {
+  const groupWidth =
+    params.columnsPerGroup * params.boothWidth + (params.columnsPerGroup - 1) * GRID_WITHIN_GROUP_GAP;
+  const numGroups = Math.ceil(params.columns / params.columnsPerGroup);
+  const bandHeight = 2 * params.boothHeight + GRID_WITHIN_BAND_GAP;
+  return { groupWidth, numGroups, bandHeight };
+}
+
+/** Total footprint (percent of the map) a grid with these params would need. */
+export function aisleGridBounds(params: AisleGridParams): { width: number; height: number } {
+  const { groupWidth, numGroups, bandHeight } = aisleGridGeometry(params);
+  const width = GRID_MARGIN_X * 2 + numGroups * groupWidth + (numGroups - 1) * GRID_AISLE_GAP;
+  const height = GRID_MARGIN_Y * 2 + params.rows * bandHeight + (params.rows - 1) * GRID_BAND_GAP;
+  return { width, height };
+}
+
+export function generateAisleGrid(params: AisleGridParams): GeneratedBooth[] {
+  const { groupWidth, bandHeight } = aisleGridGeometry(params);
+  const booths: GeneratedBooth[] = [];
+
+  for (let band = 0; band < params.rows; band++) {
+    const bandY = GRID_MARGIN_Y + band * (bandHeight + GRID_BAND_GAP);
+    for (let col = 0; col < params.columns; col++) {
+      const groupIndex = Math.floor(col / params.columnsPerGroup);
+      const posInGroup = col % params.columnsPerGroup;
+      const x =
+        GRID_MARGIN_X +
+        groupIndex * (groupWidth + GRID_AISLE_GAP) +
+        posInGroup * (params.boothWidth + GRID_WITHIN_GROUP_GAP);
+      const topNumber = params.startNumber + band * params.bandStep + col * params.columnStep;
+
+      booths.push({
+        booth_number: String(topNumber),
+        position_x: x,
+        position_y: bandY,
+        width: params.boothWidth,
+        height: params.boothHeight,
+      });
+      booths.push({
+        booth_number: String(topNumber + 1),
+        position_x: x,
+        position_y: bandY + params.boothHeight + GRID_WITHIN_BAND_GAP,
+        width: params.boothWidth,
+        height: params.boothHeight,
+      });
+    }
+  }
+
+  return booths;
+}

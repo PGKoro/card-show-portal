@@ -17,7 +17,7 @@ import type { ShowEvent } from "@/lib/events";
 import { CARDS_FEATURE_ENABLED } from "@/lib/features";
 import { type GradingCompany, type InventoryItem } from "@/lib/mockData";
 import { labelForPaymentMethod } from "@/lib/paymentMethods";
-import { themeFor } from "@/lib/profileThemes";
+import { initialsFor, themeFor } from "@/lib/profileThemes";
 
 type PublicVendor = {
   pk: number;
@@ -63,12 +63,6 @@ function toInventoryItem(listing: Listing): InventoryItem {
     status: listing.status,
     description: listing.description,
   };
-}
-
-function initialsFor(businessName: string): string {
-  const words = businessName.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "?";
-  return (words[0][0] + (words[1]?.[0] ?? "")).toUpperCase();
 }
 
 export default function PublicVendorProfilePage() {

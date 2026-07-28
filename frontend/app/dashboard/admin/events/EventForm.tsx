@@ -6,7 +6,7 @@ import Link from "next/link";
 
 import { getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
-import type { VendorDetail, VenueDetail } from "@/lib/events";
+import { toDatetimeLocalValue, type VendorDetail, type VenueDetail } from "@/lib/events";
 import type { Venue } from "@/lib/floorMap";
 
 type VendorSearchResult = { pk: number; email: string; business_name: string };
@@ -20,8 +20,12 @@ export type EventFormPayload = {
   estimated_attendees: number;
   vendors: number[];
   map_venue: number;
+<<<<<<< HEAD
   announcement: string;
   notes: string;
+=======
+  registration_deadline: string | null;
+>>>>>>> origin/main
 };
 
 export type EventFormInitialValues = {
@@ -34,8 +38,12 @@ export type EventFormInitialValues = {
   vendors_detail: VendorDetail[];
   map_venue: number | null;
   map_venue_detail: VenueDetail | null;
+<<<<<<< HEAD
   announcement?: string;
   notes?: string;
+=======
+  registration_deadline: string | null;
+>>>>>>> origin/main
 };
 
 export function EventForm({
@@ -61,9 +69,15 @@ export function EventForm({
   const [selectedVenue, setSelectedVenue] = useState<VenueDetail | null>(
     initialValues?.map_venue_detail ?? null,
   );
+<<<<<<< HEAD
   const [announcement, setAnnouncement] = useState(initialValues?.announcement ?? "");
   const [notes, setNotes] = useState(initialValues?.notes ?? "");
 
+=======
+  const [registrationDeadline, setRegistrationDeadline] = useState(
+    toDatetimeLocalValue(initialValues?.registration_deadline ?? null),
+  );
+>>>>>>> origin/main
   const [venueSearch, setVenueSearch] = useState("");
   const [venueResults, setVenueResults] = useState<Venue[]>([]);
   const [vendorSearch, setVendorSearch] = useState("");
@@ -142,8 +156,14 @@ export function EventForm({
         estimated_attendees: Number(estimatedAttendees) || 0,
         vendors: selectedVendors.map((v) => v.pk),
         map_venue: selectedVenue.pk,
+<<<<<<< HEAD
         announcement,
         notes,
+=======
+        registration_deadline: registrationDeadline
+          ? new Date(registrationDeadline).toISOString()
+          : null,
+>>>>>>> origin/main
       });
     } catch (err) {
       setError(getApiErrorMessage(err, "Could not save event. Please try again."));
@@ -250,6 +270,24 @@ export function EventForm({
             className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
           />
         </div>
+      </div>
+
+      <div>
+        <label htmlFor="registration_deadline" className="block text-sm font-medium">
+          Vendor registration deadline{" "}
+          <span className="font-normal text-gray-400">(optional)</span>
+        </label>
+        <input
+          id="registration_deadline"
+          type="datetime-local"
+          value={registrationDeadline}
+          onChange={(e) => setRegistrationDeadline(e.target.value)}
+          className="mt-1 w-full max-w-xs rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
+        />
+        <p className="mt-1 text-xs text-gray-400">
+          Shown to vendors as a countdown on this event&apos;s page. Purely informational — it
+          doesn&apos;t stop booth requests on its own.
+        </p>
       </div>
 
       <div>

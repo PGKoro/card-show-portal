@@ -44,6 +44,9 @@ export type ShowEvent = {
   /** Until this passes, a booth a vendor held at this venue's most recent
    * prior event is held exclusively for them. Null = no loyalty window. */
   loyalty_priority_deadline: string | null;
+  /** Shown to vendors as a countdown on the event page (customers see a
+   * countdown to start_date instead). Informational only. Null = not set. */
+  registration_deadline: string | null;
   /** Only populated when the requesting user is a vendor — their own
    * active registration status for this event, or null if they don't
    * have one yet. */
@@ -54,6 +57,17 @@ const EVENT_IMAGES = ["/cardshow1.webp", "/cardshow2.avif", "/cardshow3.jpeg"];
 
 export function getEventImage(id: number): string {
   return EVENT_IMAGES[id % EVENT_IMAGES.length];
+}
+
+/** Converts an ISO datetime string to the value a <input type="datetime-local">
+ * expects (local time, no timezone/seconds). Empty string means unset. */
+export function toDatetimeLocalValue(iso: string | null): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
 }
 
 function formatDate(dateString: string): string {
