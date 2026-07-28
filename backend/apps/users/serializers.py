@@ -157,6 +157,8 @@ class UserDetailsSerializer(serializers.ModelSerializer):
             "profile_theme",
             "vendor_status",
             "archived",
+            "flagged",
+            "notes",
             "date_joined",
         ) + VENDOR_DETAIL_FIELDS
         read_only_fields = (
@@ -165,8 +167,91 @@ class UserDetailsSerializer(serializers.ModelSerializer):
             "onboarding_completed",
             "vendor_status",
             "archived",
+            "flagged",
+            "notes",
             "date_joined",
         )
+
+
+class AdminUserDetailSerializer(serializers.ModelSerializer):
+    """Admin-facing detail serializer with editable email and notes."""
+
+    category_tags = serializers.ListField(child=serializers.CharField(), required=False)
+    payment_methods = serializers.ListField(child=serializers.CharField(), required=False)
+
+    class Meta:
+        model = User
+        fields = (
+            "email",
+            "notes",
+            "first_name",
+            "last_name",
+            "business_name",
+            "business_description",
+            "location",
+            "category_tags",
+            "instagram_url",
+            "youtube_url",
+            "x_url",
+            "website_url",
+            "profile_theme",
+            "tagline",
+            "collection_size",
+            "selling_since_year",
+            "also_buying",
+            "payment_methods",
+        )
+        extra_kwargs = {
+            "email": {"required": True},
+            "notes": {"required": False, "allow_blank": True},
+            "first_name": {"required": True},
+            "last_name": {"required": False, "allow_blank": True},
+            "business_name": {"required": False, "allow_blank": True},
+            "business_description": {"required": False, "allow_blank": True},
+            "location": {"required": False, "allow_blank": True},
+            "tagline": {"required": False, "allow_blank": True},
+            "collection_size": {"required": False, "allow_null": True},
+            "selling_since_year": {"required": False, "allow_null": True},
+            "also_buying": {"required": False},
+        }
+
+    def validate_email(self, value):
+        value = value.strip()
+        if User.objects.exclude(pk=self.instance.pk if self.instance else None).filter(
+            email__iexact=value
+        ).exists():
+            raise serializers.ValidationError(
+                "A user is already registered with this email address."
+            )
+        return value
+
+    def update(self, instance, validated_data):
+        for field in (
+            "email",
+            "notes",
+            "first_name",
+            "last_name",
+            "business_name",
+            "business_description",
+            "location",
+            "instagram_url",
+            "youtube_url",
+            "x_url",
+            "website_url",
+            "profile_theme",
+            "tagline",
+            "collection_size",
+            "selling_since_year",
+            "also_buying",
+        ):
+            if field in validated_data:
+                setattr(instance, field, validated_data.pop(field))
+        if "category_tags" in validated_data:
+            instance.category_tags = validated_data.pop("category_tags")
+        if "payment_methods" in validated_data:
+            instance.payment_methods = validated_data.pop("payment_methods")
+        instance.save()
+        return instance
 
 
 class OnboardingBasicSerializer(serializers.ModelSerializer):

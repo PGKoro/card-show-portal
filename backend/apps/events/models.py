@@ -179,9 +179,15 @@ class Event(models.Model):
     estimated_cards = models.PositiveIntegerField(default=0)
     estimated_attendees = models.PositiveIntegerField(default=0)
     archived = models.BooleanField(default=False)
+    # Public announcement shown on the event page for things like "no bags"
+    # or other show-day notices.
+    announcement = models.TextField(blank=True, default="")
+    # Internal admin-only notes for future changes, scheduling reminders,
+    # or anything the public should never see.
+    notes = models.TextField(blank=True, default="")
 
     # Floor map — the map image/preset and booth slots live on Venue (see
-    # above), reused across every event held there. map_venue is nullable:
+
     # an event doesn't have to have a floor map at all.
     map_venue = models.ForeignKey(
         Venue, on_delete=models.SET_NULL, null=True, blank=True, related_name="events"

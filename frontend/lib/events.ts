@@ -32,6 +32,8 @@ export type ShowEvent = {
    * Vendor booth registration closes as soon as this is true. */
   has_started: boolean;
   archived: boolean;
+  announcement?: string;
+  notes?: string;
   map_venue: number | null;
   map_venue_detail: VenueDetail | null;
   /** Doesn't say whether an image has actually been uploaded — that's

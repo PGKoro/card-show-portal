@@ -273,6 +273,11 @@ export default function AdminEventsPage() {
                     >
                       {event.archived ? "Archived" : activeTab === "upcoming" ? "Upcoming" : "Completed"}
                     </span>
+                    {event.notes && event.notes.trim() && (
+                      <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                        Note
+                      </span>
+                    )}
                   </div>
                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                     {event.venue}, {event.city} · {formatEventDateRange(event)}
@@ -280,6 +285,11 @@ export default function AdminEventsPage() {
                   <p className="mt-1 text-xs text-gray-400">
                     {event.vendor_count} vendors · {event.estimated_cards.toLocaleString()} estimated cards · {event.estimated_attendees.toLocaleString()} estimated attendees
                   </p>
+                  {event.notes && event.notes.trim() && (
+                    <p className="mt-2 max-w-xl rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-100">
+                      {event.notes}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
