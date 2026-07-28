@@ -3,6 +3,8 @@ from django.urls import path
 from .views import (
     BoothDetailView,
     BoothListCreateView,
+    VenueAmenityDetailView,
+    VenueAmenityListCreateView,
     VenueDetailView,
     VenueListCreateView,
     VenueMapImageUploadView,
@@ -22,4 +24,6 @@ urlpatterns = [
     path("booths/<int:pk>/", BoothDetailView.as_view(), name="venue-booth-detail"),
     path("<int:pk>/sections/", VenueSectionListCreateView.as_view(), name="venue-sections"),
     path("sections/<int:pk>/", VenueSectionDetailView.as_view(), name="venue-section-detail"),
+    path("<int:pk>/amenities/", VenueAmenityListCreateView.as_view(), name="venue-amenities"),
+    path("amenities/<int:pk>/", VenueAmenityDetailView.as_view(), name="venue-amenity-detail"),
 ]

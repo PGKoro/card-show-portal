@@ -200,7 +200,7 @@ export default function VendorBoothSelectionPage() {
                 type="button"
                 onClick={() => openBooth(booth)}
                 title={`Booth ${booth.booth_number} — $${booth.price}`}
-                className={`absolute rounded border-2 ${AVAILABILITY_STYLES[booth.availability]}`}
+                className={`absolute flex items-center justify-center overflow-hidden rounded border-2 ${AVAILABILITY_STYLES[booth.availability]}`}
                 style={{
                   left: `${percent(booth.position_x)}%`,
                   top: `${percent(booth.position_y)}%`,
@@ -208,7 +208,7 @@ export default function VendorBoothSelectionPage() {
                   height: `${percent(booth.height)}%`,
                 }}
               >
-                <span className="pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-medium text-white">
+                <span className="pointer-events-none truncate px-0.5 text-[10px] font-medium text-brand-navy dark:text-white">
                   {booth.booth_number}
                 </span>
               </button>

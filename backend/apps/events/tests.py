@@ -12,7 +12,7 @@ from rest_framework.test import APITestCase
 
 from apps.users.models import User
 
-from .models import Booth, BoothRegistration, Event, Venue, VenueSection
+from .models import Booth, BoothRegistration, Event, Venue, VenueAmenity, VenueSection
 from .services import create_loyalty_holds
 
 
@@ -971,6 +971,82 @@ class VenueSectionTests(APITestCase):
         self.assertEqual(self.venue.sections.count(), 0)
 
 
+class VenueAmenityTests(APITestCase):
+    """Covers custom-vendor marker CRUD."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            email="amenity-admin@example.com", password="s3cret!23"
+        )
+        self.customer = User.objects.create_user(
+            email="amenity-cust@example.com", password="s3cret!23"
+        )
+        self.venue = Venue.objects.create(name="Amenity Hall", city="Amenity City")
+
+    def access_for(self, email, password="s3cret!23"):
+        login = self.client.post("/api/v1/auth/login/", {"email": email, "password": password})
+        return login.data["access"]
+
+    def admin_auth(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.access_for('amenity-admin@example.com')}"}
+
+    def amenity_payload(self, **overrides):
+        payload = {
+            "label": "Acme Sponsors",
+            "position_x": "0.00",
+            "position_y": "0.00",
+            "width": "5.00",
+            "height": "5.00",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_admin_can_create_custom_amenity_with_label(self):
+        response = self.client.post(
+            f"/api/v1/venues/{self.venue.pk}/amenities/",
+            self.amenity_payload(),
+            format="json",
+            **self.admin_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.venue.refresh_from_db()
+        self.assertEqual(self.venue.amenities.count(), 1)
+        self.assertEqual(response.data["label"], "Acme Sponsors")
+
+    def test_non_admin_cannot_create_amenity(self):
+        access = self.access_for("amenity-cust@example.com")
+        response = self.client.post(
+            f"/api/v1/venues/{self.venue.pk}/amenities/",
+            self.amenity_payload(),
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_invalid_position_is_rejected(self):
+        response = self.client.post(
+            f"/api/v1/venues/{self.venue.pk}/amenities/",
+            self.amenity_payload(position_x="150.00"),
+            format="json",
+            **self.admin_auth(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_admin_can_delete_amenity(self):
+        create = self.client.post(
+            f"/api/v1/venues/{self.venue.pk}/amenities/",
+            self.amenity_payload(),
+            format="json",
+            **self.admin_auth(),
+        )
+        amenity_id = create.data["id"]
+        response = self.client.delete(
+            f"/api/v1/venues/amenities/{amenity_id}/", **self.admin_auth()
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(self.venue.amenities.count(), 0)
+
+
 class PublicEventMapTests(APITestCase):
     """Covers the public /events/<id>/map/ endpoint against the new venue/registration schema."""
 
@@ -1164,6 +1240,24 @@ class PublicEventMapTests(APITestCase):
         response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
         self.assertEqual(len(response.data["sections"]), 1)
         self.assertEqual(response.data["sections"][0]["category"], "pokemon")
+
+    def test_includes_amenities(self):
+        VenueAmenity.objects.create(
+            venue=self.venue,
+            label="Acme Sponsors",
+            position_x=0,
+            position_y=0,
+            width=5,
+            height=5,
+        )
+        self.venue.map_image_preset = "single_hall"
+        self.venue.save()
+        self.event.map_venue = self.venue
+        self.event.map_visible = True
+        self.event.save()
+        response = self.client.get(f"/api/v1/events/{self.event.pk}/map/")
+        self.assertEqual(len(response.data["amenities"]), 1)
+        self.assertEqual(response.data["amenities"][0]["label"], "Acme Sponsors")
 
 
 class BoothRegistrationAdminTests(APITestCase):

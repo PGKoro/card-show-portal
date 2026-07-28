@@ -58,3 +58,10 @@ export const PROFILE_THEME_OPTIONS = Object.entries(PROFILE_THEMES).map(([value,
 export function themeFor(value: string | undefined): ThemeDefinition {
   return PROFILE_THEMES[(value as ProfileTheme) ?? "blue"] ?? PROFILE_THEMES.blue;
 }
+
+/** Fallback avatar content (e.g. "JD") when a vendor has no avatar image. */
+export function initialsFor(businessName: string): string {
+  const words = businessName.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  return (words[0][0] + (words[1]?.[0] ?? "")).toUpperCase();
+}
