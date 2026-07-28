@@ -78,7 +78,11 @@ class EventSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        if not (user and user.is_authenticated and (user.is_superuser or user.role == User.Role.ADMIN)):
+        if not (
+            user
+            and user.is_authenticated
+            and (user.is_superuser or user.role == User.Role.ADMIN)
+        ):
             data.pop("notes", None)
         return data
 

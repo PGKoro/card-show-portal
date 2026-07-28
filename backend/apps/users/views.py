@@ -26,7 +26,6 @@ from .serializers import (
 )
 
 
-
 class OnboardingView(generics.UpdateAPIView):
     """
     Onboarding step 1: PATCH /api/v1/auth/onboarding/. Collects name and

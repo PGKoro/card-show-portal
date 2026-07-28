@@ -220,7 +220,9 @@ class AdminUserDetailSerializer(serializers.ModelSerializer):
         if User.objects.exclude(pk=self.instance.pk if self.instance else None).filter(
             email__iexact=value
         ).exists():
-            raise serializers.ValidationError("A user is already registered with this email address.")
+            raise serializers.ValidationError(
+                "A user is already registered with this email address."
+            )
         return value
 
     def update(self, instance, validated_data):
