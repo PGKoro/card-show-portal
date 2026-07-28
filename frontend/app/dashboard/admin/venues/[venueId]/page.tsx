@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { useConfirm } from "@/components/ConfirmDialogProvider";
@@ -9,18 +9,24 @@ import { apiFetch, apiFetchMultipart, getApiErrorMessage } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 import { useCategories } from "@/lib/CategoriesContext";
 import {
-  BOOTH_SIZE_PRESETS,
+  aisleGridBounds,
+  BOOTH_SIZE,
+  generateAisleGrid,
   MAP_PRESETS,
   percent,
   resolveMapImage,
-  type BoothSizeKey,
+  type VenueAmenity,
   type VenueBooth,
   type VenueMap,
   type VenueSection,
 } from "@/lib/floorMap";
+import { themeFor } from "@/lib/profileThemes";
 
 type Rect = { x: number; y: number; w: number; h: number };
-type Mode = "booth" | "section";
+type Mode = "select" | "booth" | "section" | "amenity";
+// What kind of shape a drag/live-rect is acting on — distinct from Mode
+// (the toolbar's current tool), since a drag target is always a real shape.
+type ShapeKind = "booth" | "section" | "amenity";
 
 // Module-scoped (not per-render/per-effect) so it dedupes a given native
 // mouseup event exactly once even if React ends up with more than one copy
@@ -33,17 +39,25 @@ const HANDLED_MOUSEUP_EVENTS = new WeakSet<Event>();
 // releases. A mousedown+mouseup with no movement is treated as a click that
 // opens the edit form instead of a no-op position change.
 type DragState = {
-  kind: Mode;
+  kind: ShapeKind;
   id: number;
   mode: "move" | "resize";
   startClientX: number;
   startClientY: number;
   startRect: Rect;
   moved: boolean;
+  // Set only when dragging a booth that's part of a multi-selection — every
+  // selected booth's starting rect, so the whole group translates together
+  // by the same delta instead of just the one the drag started on.
+  groupStartRects?: Map<number, Rect>;
 };
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function rectsIntersect(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
 function rectFromShape(shape: {
@@ -64,19 +78,17 @@ function isFulfilled<T>(result: PromiseSettledResult<T>): result is PromiseFulfi
   return result.status === "fulfilled";
 }
 
-// Scans existing booth numbers matching "<prefix><digits>" and returns the
-// next one in sequence (zero-padded to at least 3 digits, e.g. A001, A002,
-// ...), so re-entering a venue (or switching rows) resumes correctly
-// without a separate counter to keep in sync.
-function nextBoothNumber(existingBooths: VenueBooth[], prefix: string): string {
-  const clean = prefix || "A";
+// Scans existing (purely numeric) booth numbers and returns the next one in
+// sequence, so re-entering a venue resumes correctly without a separate
+// counter to keep in sync. Non-numeric booth numbers (e.g. from before this
+// was plain numbers) are ignored rather than breaking the scan.
+function nextPlainBoothNumber(existingBooths: VenueBooth[]): string {
   let max = 0;
   for (const booth of existingBooths) {
-    if (!booth.booth_number.startsWith(clean)) continue;
-    const suffix = booth.booth_number.slice(clean.length);
-    if (/^\d+$/.test(suffix)) max = Math.max(max, parseInt(suffix, 10));
+    const n = parseInt(booth.booth_number, 10);
+    if (!Number.isNaN(n)) max = Math.max(max, n);
   }
-  return `${clean}${String(max + 1).padStart(3, "0")}`;
+  return String(max + 1);
 }
 
 function boothToPayload(booth: VenueBooth) {
@@ -112,8 +124,10 @@ export default function VenueMapEditorPage() {
     map_image_preset: mapImagePreset,
   });
 
-  const [mode, setMode] = useState<Mode>("booth");
-  const modeRef = useRef<Mode>("booth");
+  // "Select" is the default — you land ready to multi-select/move existing
+  // booths. Placing new ones is opt-in via the "Place booths" button.
+  const [mode, setMode] = useState<Mode>("select");
+  const modeRef = useRef<Mode>("select");
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
@@ -134,6 +148,18 @@ export default function VenueMapEditorPage() {
 
   const [sections, setSections] = useState<VenueSection[]>([]);
 
+  // Custom vendor markers (sponsor tables, food trucks, etc. that aren't
+  // real registered vendors) auto-save immediately, same as sections —
+  // lower-stakes overlays, not staged like booths.
+  const [amenities, setAmenities] = useState<VenueAmenity[]>([]);
+
+  const [editingAmenity, setEditingAmenity] = useState<VenueAmenity | "new" | null>(null);
+  const [amenityFormRect, setAmenityFormRect] = useState<Rect | null>(null);
+  const [amenityLabel, setAmenityLabel] = useState("");
+  const [amenityLogoFile, setAmenityLogoFile] = useState<File | null>(null);
+  const [amenityFormError, setAmenityFormError] = useState<string | null>(null);
+  const [amenitySubmitting, setAmenitySubmitting] = useState(false);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const boothsRef = useRef<VenueBooth[]>([]);
   useEffect(() => {
@@ -147,6 +173,10 @@ export default function VenueMapEditorPage() {
   useEffect(() => {
     sectionsRef.current = sections;
   }, [sections]);
+  const amenitiesRef = useRef<VenueAmenity[]>([]);
+  useEffect(() => {
+    amenitiesRef.current = amenities;
+  }, [amenities]);
 
   const drawStartRef = useRef<{ x: number; y: number } | null>(null);
   const [draftRect, setDraftRect] = useState<Rect | null>(null);
@@ -158,26 +188,43 @@ export default function VenueMapEditorPage() {
   const draftRectRef = useRef<Rect | null>(null);
 
   const dragRef = useRef<DragState | null>(null);
-  const [liveRect, setLiveRect] = useState<{ kind: Mode; id: number; rect: Rect } | null>(null);
-  const liveRectRef = useRef<{ kind: Mode; id: number; rect: Rect } | null>(null);
+  const [liveRect, setLiveRect] = useState<{ kind: ShapeKind; id: number; rect: Rect } | null>(
+    null,
+  );
+  const liveRectRef = useRef<{ kind: ShapeKind; id: number; rect: Rect } | null>(null);
 
-  const [newBoothSize, setNewBoothSize] = useState<BoothSizeKey>("small");
-  const newBoothSizeRef = useRef<BoothSizeKey>("small");
+  // Multi-select ("Select booths" mode, the default): drag over empty map
+  // area draws a marquee rectangle; every booth it touches gets selected.
+  // Dragging any one selected booth afterward moves the whole group
+  // together (see groupStartRects above).
+  const [selectedBoothIds, setSelectedBoothIds] = useState<Set<number>>(new Set());
+  const selectedBoothIdsRef = useRef<Set<number>>(new Set());
   useEffect(() => {
-    newBoothSizeRef.current = newBoothSize;
-  }, [newBoothSize]);
+    selectedBoothIdsRef.current = selectedBoothIds;
+  }, [selectedBoothIds]);
 
-  // Row prefix + default price drive fast bulk placement: every click/drag
-  // on the map immediately stages a new booth numbered "<prefix><next seq>"
-  // (e.g. A001, A002, ...) at the current default price — no per-booth
-  // dialog. Click an already-placed booth afterward to fix up any one of
-  // them (rename, reprice, delete).
-  const [boothRowPrefix, setBoothRowPrefix] = useState("A");
-  const boothRowPrefixRef = useRef("A");
-  useEffect(() => {
-    boothRowPrefixRef.current = boothRowPrefix;
-  }, [boothRowPrefix]);
+  // A selection only means anything in "select" mode — clear it when
+  // switching to Place Booths/Mark Category Zones so a leftover selection
+  // can't cause a later drag in those modes to be mistaken for a group move.
+  function switchMode(next: Mode) {
+    if (mode === "select" && next !== "select") {
+      setSelectedBoothIds(new Set());
+    }
+    setMode(next);
+  }
 
+  const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const marqueeRectRef = useRef<Rect | null>(null);
+  const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
+
+  const [liveGroupRects, setLiveGroupRects] = useState<Map<number, Rect> | null>(null);
+  const liveGroupRectsRef = useRef<Map<number, Rect> | null>(null);
+
+  // Default price drives fast bulk placement: every click/drag on the map
+  // immediately stages a new booth numbered with the next plain sequential
+  // number at the current default price — no per-booth dialog. Click an
+  // already-placed booth afterward to fix up any one of them (rename,
+  // reprice, delete).
   const [defaultBoothPrice, setDefaultBoothPrice] = useState("0");
   const defaultBoothPriceRef = useRef("0");
   useEffect(() => {
@@ -195,6 +242,57 @@ export default function VenueMapEditorPage() {
   const [sectionFormError, setSectionFormError] = useState<string | null>(null);
   const [sectionSubmitting, setSectionSubmitting] = useState(false);
 
+  // "Generate Grid" — auto-places a whole perfectly-aligned grid of booths
+  // (paired across an aisle, plain numeric numbering) instead of relying on
+  // dragging each one by hand. Staged the same way as a single click-placed
+  // booth (pendingCreateIds), so Save/Discard changes work identically.
+  const [gridModalOpen, setGridModalOpen] = useState(false);
+  const [gridRows, setGridRows] = useState("5");
+  const [gridColumns, setGridColumns] = useState("6");
+  const [gridColumnsPerGroup, setGridColumnsPerGroup] = useState("2");
+  const [gridStartNumber, setGridStartNumber] = useState("100");
+  const [gridColumnStep, setGridColumnStep] = useState("2");
+  const [gridBandStep, setGridBandStep] = useState("100");
+  const [gridError, setGridError] = useState<string | null>(null);
+
+  // Live schematic preview of the grid these parameters would produce —
+  // recomputed on every keystroke with the exact same math used to actually
+  // place the booths, so what you see here is what you get on Generate.
+  // null means the current parameters aren't generateable yet (same checks
+  // as handleGenerateGrid): the preview just goes quiet rather than erroring
+  // while you're still mid-edit.
+  const gridPreview = useMemo(() => {
+    const rows = parseInt(gridRows, 10);
+    const columns = parseInt(gridColumns, 10);
+    const columnsPerGroup = parseInt(gridColumnsPerGroup, 10);
+    const startNumber = parseInt(gridStartNumber, 10);
+    const columnStep = parseInt(gridColumnStep, 10);
+    const bandStep = parseInt(gridBandStep, 10);
+    if (
+      [rows, columns, columnsPerGroup, startNumber, columnStep, bandStep].some(
+        (n) => Number.isNaN(n) || n <= 0,
+      )
+    ) {
+      return null;
+    }
+    if (columnsPerGroup > columns) return null;
+
+    const params = {
+      rows,
+      columns,
+      columnsPerGroup,
+      startNumber,
+      columnStep,
+      bandStep,
+      boothWidth: BOOTH_SIZE.w,
+      boothHeight: BOOTH_SIZE.h,
+    };
+    const bounds = aisleGridBounds(params);
+    if (bounds.width > 100 || bounds.height > 100) return null;
+
+    return { booths: generateAisleGrid(params), bounds };
+  }, [gridRows, gridColumns, gridColumnsPerGroup, gridStartNumber, gridColumnStep, gridBandStep]);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -211,6 +309,7 @@ export default function VenueMapEditorPage() {
         setBooths(map.booths);
         savedBoothsRef.current = map.booths;
         setSections(map.sections);
+        setAmenities(map.amenities);
       } catch (err) {
         if (!cancelled) setPageError(getApiErrorMessage(err, "Could not load this venue."));
       } finally {
@@ -230,6 +329,14 @@ export default function VenueMapEditorPage() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
+
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if (e.key === "Escape") setSelectedBoothIds(new Set());
+    }
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   function commitBoothRectLocally(boothId: number, rect: Rect) {
     setBooths((current) =>
@@ -276,7 +383,34 @@ export default function VenueMapEditorPage() {
     }
   }
 
+  async function commitAmenityRect(amenityId: number, rect: Rect) {
+    try {
+      const updated = await apiFetch<VenueAmenity>(`/venues/amenities/${amenityId}/`, {
+        method: "PATCH",
+        accessToken: getAccessToken() ?? undefined,
+        body: {
+          position_x: rect.x.toFixed(2),
+          position_y: rect.y.toFixed(2),
+          width: rect.w.toFixed(2),
+          height: rect.h.toFixed(2),
+        },
+      });
+      setAmenities((current) => current.map((a) => (a.id === updated.id ? updated : a)));
+    } catch {
+      // Best effort — reload from server to discard a failed drag.
+      try {
+        const map = await apiFetch<VenueMap>(`/venues/${venueId}/map/`, {
+          accessToken: getAccessToken() ?? undefined,
+        });
+        setAmenities(map.amenities);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   function openEditBoothForm(booth: VenueBooth) {
+    setSelectedBoothIds(new Set());
     setBoothFormError(null);
     setEditingBooth(booth);
     setBoothNumber(booth.booth_number);
@@ -291,7 +425,7 @@ export default function VenueMapEditorPage() {
   // a new booth at the current row/price defaults with no dialog. Click the
   // placed marker afterward (openEditBoothForm) to fix up any one of them.
   function createBoothAt(rect: Rect) {
-    const boothNumber = nextBoothNumber(boothsRef.current, boothRowPrefixRef.current);
+    const boothNumber = nextPlainBoothNumber(boothsRef.current);
     const price = Number(defaultBoothPriceRef.current) || 0;
     const tempId = nextTempIdRef.current--;
     const newBooth: VenueBooth = {
@@ -311,6 +445,92 @@ export default function VenueMapEditorPage() {
     boothsRef.current = [...boothsRef.current, newBooth];
     setBooths(boothsRef.current);
     setPendingCreateIds((current) => new Set(current).add(tempId));
+  }
+
+  function openGridModal() {
+    setGridError(null);
+    setGridModalOpen(true);
+  }
+
+  function closeGridModal() {
+    setGridModalOpen(false);
+  }
+
+  function handleGenerateGrid(e: FormEvent) {
+    e.preventDefault();
+    setGridError(null);
+
+    const rows = parseInt(gridRows, 10);
+    const columns = parseInt(gridColumns, 10);
+    const columnsPerGroup = parseInt(gridColumnsPerGroup, 10);
+    const startNumber = parseInt(gridStartNumber, 10);
+    const columnStep = parseInt(gridColumnStep, 10);
+    const bandStep = parseInt(gridBandStep, 10);
+    if ([rows, columns, columnsPerGroup, startNumber, columnStep, bandStep].some(
+      (n) => Number.isNaN(n) || n <= 0,
+    )) {
+      setGridError("All fields must be positive numbers.");
+      return;
+    }
+    if (columnsPerGroup > columns) {
+      setGridError("Columns per aisle group can't be more than the total number of columns.");
+      return;
+    }
+
+    const params = {
+      rows,
+      columns,
+      columnsPerGroup,
+      startNumber,
+      columnStep,
+      bandStep,
+      boothWidth: BOOTH_SIZE.w,
+      boothHeight: BOOTH_SIZE.h,
+    };
+
+    const bounds = aisleGridBounds(params);
+    if (bounds.width > 100 || bounds.height > 100) {
+      setGridError(
+        `This grid is too big for the map (needs ${bounds.width.toFixed(0)}% width, ` +
+          `${bounds.height.toFixed(0)}% height — both must fit within 100%). Reduce rows/columns.`,
+      );
+      return;
+    }
+
+    const generated = generateAisleGrid(params);
+    const existingNumbers = new Set(boothsRef.current.map((b) => b.booth_number));
+    const collisions = generated.filter((g) => existingNumbers.has(g.booth_number));
+    if (collisions.length > 0) {
+      setGridError(
+        `These booth numbers already exist: ${collisions.map((c) => c.booth_number).join(", ")}. ` +
+          "Change the starting number, or remove the conflicting booths first.",
+      );
+      return;
+    }
+
+    const newBooths: VenueBooth[] = generated.map((g) => {
+      const tempId = nextTempIdRef.current--;
+      return {
+        id: tempId,
+        booth_number: g.booth_number,
+        position_x: g.position_x.toFixed(2),
+        position_y: g.position_y.toFixed(2),
+        width: g.width.toFixed(2),
+        height: g.height.toFixed(2),
+        price: (Number(defaultBoothPrice) || 0).toFixed(2),
+        created_at: "",
+        updated_at: "",
+      };
+    });
+
+    boothsRef.current = [...boothsRef.current, ...newBooths];
+    setBooths(boothsRef.current);
+    setPendingCreateIds((current) => {
+      const next = new Set(current);
+      newBooths.forEach((b) => next.add(b.id));
+      return next;
+    });
+    setGridModalOpen(false);
   }
 
   function resetSectionForm() {
@@ -336,6 +556,118 @@ export default function VenueMapEditorPage() {
     setSectionFormRect(null);
   }
 
+  function openNewAmenityForm(rect: Rect) {
+    setAmenityLabel("");
+    setAmenityLogoFile(null);
+    setAmenityFormError(null);
+    setEditingAmenity("new");
+    setAmenityFormRect(rect);
+  }
+
+  function openEditAmenityForm(amenity: VenueAmenity) {
+    setAmenityLabel(amenity.label);
+    setAmenityLogoFile(null);
+    setAmenityFormError(null);
+    setEditingAmenity(amenity);
+    setAmenityFormRect(null);
+  }
+
+  function closeAmenityForm() {
+    setEditingAmenity(null);
+    setAmenityFormRect(null);
+  }
+
+  async function handleAmenityFormSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!amenityLabel.trim()) {
+      setAmenityFormError("Enter a brand name.");
+      return;
+    }
+    setAmenitySubmitting(true);
+    setAmenityFormError(null);
+    try {
+      if (editingAmenity === "new") {
+        if (!amenityFormRect) return;
+        let created: VenueAmenity;
+        if (amenityLogoFile) {
+          const formData = new FormData();
+          formData.append("label", amenityLabel.trim());
+          formData.append("position_x", amenityFormRect.x.toFixed(2));
+          formData.append("position_y", amenityFormRect.y.toFixed(2));
+          formData.append("width", amenityFormRect.w.toFixed(2));
+          formData.append("height", amenityFormRect.h.toFixed(2));
+          formData.append("logo_image", amenityLogoFile);
+          created = await apiFetchMultipart<VenueAmenity>(`/venues/${venueId}/amenities/`, formData, {
+            accessToken: getAccessToken() ?? undefined,
+          });
+        } else {
+          created = await apiFetch<VenueAmenity>(`/venues/${venueId}/amenities/`, {
+            method: "POST",
+            accessToken: getAccessToken() ?? undefined,
+            body: {
+              label: amenityLabel.trim(),
+              position_x: amenityFormRect.x.toFixed(2),
+              position_y: amenityFormRect.y.toFixed(2),
+              width: amenityFormRect.w.toFixed(2),
+              height: amenityFormRect.h.toFixed(2),
+            },
+          });
+        }
+        setAmenities((current) => [...current, created]);
+      } else if (editingAmenity) {
+        let updated: VenueAmenity;
+        if (amenityLogoFile) {
+          const formData = new FormData();
+          formData.append("label", amenityLabel.trim());
+          formData.append("logo_image", amenityLogoFile);
+          updated = await apiFetchMultipart<VenueAmenity>(
+            `/venues/amenities/${editingAmenity.id}/`,
+            formData,
+            { method: "PATCH", accessToken: getAccessToken() ?? undefined },
+          );
+        } else {
+          updated = await apiFetch<VenueAmenity>(`/venues/amenities/${editingAmenity.id}/`, {
+            method: "PATCH",
+            accessToken: getAccessToken() ?? undefined,
+            body: { label: amenityLabel.trim() },
+          });
+        }
+        setAmenities((current) => current.map((a) => (a.id === updated.id ? updated : a)));
+      }
+      closeAmenityForm();
+    } catch (err) {
+      setAmenityFormError(getApiErrorMessage(err, "Could not save this amenity."));
+    } finally {
+      setAmenitySubmitting(false);
+    }
+  }
+
+  async function handleDeleteAmenity() {
+    if (editingAmenity === "new" || !editingAmenity) return;
+    const target = editingAmenity;
+    const ok = await confirm({
+      title: "Remove this marker?",
+      message: `The ${target.label || "custom vendor"} marker will be removed.`,
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    setAmenitySubmitting(true);
+    try {
+      await apiFetch(`/venues/amenities/${target.id}/`, {
+        method: "DELETE",
+        accessToken: getAccessToken() ?? undefined,
+      });
+      setAmenities((current) => current.filter((a) => a.id !== target.id));
+      closeAmenityForm();
+    } catch (err) {
+      setAmenityFormError(getApiErrorMessage(err, "Could not remove this marker."));
+    } finally {
+      setAmenitySubmitting(false);
+    }
+  }
+
   // Global listeners are always mounted and no-op unless a drag or a
   // rectangle-draw is in progress (tracked via refs, not state, so this
   // effect never needs to re-subscribe mid-gesture).
@@ -352,6 +684,22 @@ export default function VenueMapEditorPage() {
         drag.moved = true;
         const dxPct = (dx / bounds.width) * 100;
         const dyPct = (dy / bounds.height) * 100;
+
+        if (drag.groupStartRects) {
+          const next = new Map<number, Rect>();
+          for (const [id, startRect] of drag.groupStartRects) {
+            next.set(id, {
+              x: clamp(startRect.x + dxPct, 0, 100 - startRect.w),
+              y: clamp(startRect.y + dyPct, 0, 100 - startRect.h),
+              w: startRect.w,
+              h: startRect.h,
+            });
+          }
+          liveGroupRectsRef.current = next;
+          setLiveGroupRects(next);
+          return;
+        }
+
         const next: Rect =
           drag.mode === "move"
             ? {
@@ -368,6 +716,20 @@ export default function VenueMapEditorPage() {
               };
         liveRectRef.current = { kind: drag.kind, id: drag.id, rect: next };
         setLiveRect(liveRectRef.current);
+        return;
+      }
+
+      if (marqueeStartRef.current) {
+        const start = marqueeStartRef.current;
+        const curX = clamp(((e.clientX - bounds.left) / bounds.width) * 100, 0, 100);
+        const curY = clamp(((e.clientY - bounds.top) / bounds.height) * 100, 0, 100);
+        marqueeRectRef.current = {
+          x: Math.min(start.x, curX),
+          y: Math.min(start.y, curY),
+          w: Math.abs(curX - start.x),
+          h: Math.abs(curY - start.y),
+        };
+        setMarqueeRect(marqueeRectRef.current);
         return;
       }
 
@@ -401,26 +763,60 @@ export default function VenueMapEditorPage() {
         if (!drag.moved) {
           liveRectRef.current = null;
           setLiveRect(null);
+          liveGroupRectsRef.current = null;
+          setLiveGroupRects(null);
           if (drag.mode === "move") {
             if (drag.kind === "booth") {
               const booth = boothsRef.current.find((b) => b.id === drag.id);
               if (booth) openEditBoothForm(booth);
-            } else {
+            } else if (drag.kind === "section") {
               const section = sectionsRef.current.find((s) => s.id === drag.id);
               if (section) openEditSectionForm(section);
+            } else {
+              const amenity = amenitiesRef.current.find((a) => a.id === drag.id);
+              if (amenity) openEditAmenityForm(amenity);
             }
           }
           return;
         }
+
+        if (drag.groupStartRects) {
+          const finalRects = liveGroupRectsRef.current;
+          liveGroupRectsRef.current = null;
+          setLiveGroupRects(null);
+          if (finalRects) {
+            for (const [id, rect] of finalRects) {
+              commitBoothRectLocally(id, rect);
+            }
+          }
+          return;
+        }
+
         const current = liveRectRef.current;
         liveRectRef.current = null;
         setLiveRect(null);
         if (current && current.kind === drag.kind && current.id === drag.id) {
           if (drag.kind === "booth") {
             commitBoothRectLocally(drag.id, current.rect);
-          } else {
+          } else if (drag.kind === "section") {
             void commitSectionRect(drag.id, current.rect);
+          } else {
+            void commitAmenityRect(drag.id, current.rect);
           }
+        }
+        return;
+      }
+
+      if (marqueeStartRef.current) {
+        marqueeStartRef.current = null;
+        const rect = marqueeRectRef.current;
+        marqueeRectRef.current = null;
+        setMarqueeRect(null);
+        if (rect && rect.w > 0.5 && rect.h > 0.5) {
+          const hits = boothsRef.current.filter((b) => rectsIntersect(rectFromShape(b), rect));
+          setSelectedBoothIds(new Set(hits.map((b) => b.id)));
+        } else {
+          setSelectedBoothIds(new Set());
         }
         return;
       }
@@ -432,6 +828,23 @@ export default function VenueMapEditorPage() {
         draftRectRef.current = null;
         setDraftRect(null);
 
+        if (modeRef.current === "amenity") {
+          // Drawn like a section (drag a rect, or a plain click drops it at
+          // the standard booth footprint), then opens a form for its brand
+          // name + logo.
+          if (current && current.w > 1.5 && current.h > 1.5) {
+            openNewAmenityForm(current);
+          } else {
+            openNewAmenityForm({
+              x: clamp(start.x, 0, 100 - BOOTH_SIZE.w),
+              y: clamp(start.y, 0, 100 - BOOTH_SIZE.h),
+              w: BOOTH_SIZE.w,
+              h: BOOTH_SIZE.h,
+            });
+          }
+          return;
+        }
+
         if (current && current.w > 1.5 && current.h > 1.5) {
           if (modeRef.current === "booth") {
             createBoothAt(current);
@@ -441,12 +854,11 @@ export default function VenueMapEditorPage() {
         } else if (modeRef.current === "booth") {
           // A plain click (no drag) drops a standard-size booth anchored
           // at the click point instead of a zero-size rectangle.
-          const preset = BOOTH_SIZE_PRESETS[newBoothSizeRef.current];
           createBoothAt({
-            x: clamp(start.x, 0, 100 - preset.w),
-            y: clamp(start.y, 0, 100 - preset.h),
-            w: preset.w,
-            h: preset.h,
+            x: clamp(start.x, 0, 100 - BOOTH_SIZE.w),
+            y: clamp(start.y, 0, 100 - BOOTH_SIZE.h),
+            w: BOOTH_SIZE.w,
+            h: BOOTH_SIZE.h,
           });
         }
       }
@@ -466,6 +878,17 @@ export default function VenueMapEditorPage() {
     const bounds = containerRef.current.getBoundingClientRect();
     const x = clamp(((e.clientX - bounds.left) / bounds.width) * 100, 0, 100);
     const y = clamp(((e.clientY - bounds.top) / bounds.height) * 100, 0, 100);
+
+    // In "Select" mode, dragging empty map area draws a marquee selection
+    // instead of drawing a new booth — booth creation only happens in
+    // "Place booths" mode.
+    if (modeRef.current === "select") {
+      marqueeStartRef.current = { x, y };
+      marqueeRectRef.current = { x, y, w: 0, h: 0 };
+      setMarqueeRect(marqueeRectRef.current);
+      return;
+    }
+
     drawStartRef.current = { x, y };
     draftRectRef.current = { x, y, w: 0, h: 0 };
     setDraftRect(draftRectRef.current);
@@ -474,6 +897,8 @@ export default function VenueMapEditorPage() {
   function startMoveBooth(e: React.MouseEvent, booth: VenueBooth) {
     e.stopPropagation();
     e.preventDefault();
+    const selected = selectedBoothIdsRef.current;
+    const isGroupMove = selected.size > 1 && selected.has(booth.id);
     dragRef.current = {
       kind: "booth",
       id: booth.id,
@@ -482,6 +907,11 @@ export default function VenueMapEditorPage() {
       startClientY: e.clientY,
       startRect: rectFromShape(booth),
       moved: false,
+      groupStartRects: isGroupMove
+        ? new Map(
+            boothsRef.current.filter((b) => selected.has(b.id)).map((b) => [b.id, rectFromShape(b)]),
+          )
+        : undefined,
     };
   }
 
@@ -523,6 +953,34 @@ export default function VenueMapEditorPage() {
       startClientX: e.clientX,
       startClientY: e.clientY,
       startRect: rectFromShape(section),
+      moved: false,
+    };
+  }
+
+  function startMoveAmenity(e: React.MouseEvent, amenity: VenueAmenity) {
+    e.stopPropagation();
+    e.preventDefault();
+    dragRef.current = {
+      kind: "amenity",
+      id: amenity.id,
+      mode: "move",
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startRect: rectFromShape(amenity),
+      moved: false,
+    };
+  }
+
+  function startResizeAmenity(e: React.MouseEvent, amenity: VenueAmenity) {
+    e.stopPropagation();
+    e.preventDefault();
+    dragRef.current = {
+      kind: "amenity",
+      id: amenity.id,
+      mode: "resize",
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startRect: rectFromShape(amenity),
       moved: false,
     };
   }
@@ -844,9 +1302,10 @@ export default function VenueMapEditorPage() {
 
         <h1 className="text-2xl font-semibold">Floor Plan — {venueName}</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          This layout is reused across every event held at this venue. Click the map to drop a
-          booth at the set size/price/row, or drag to draw a custom size — click a placed booth
-          to edit or remove it.
+          This layout is reused across every event held at this venue. Drag over empty space to
+          select multiple booths, then drag any one of them to move the whole group together —
+          click a single booth to edit or remove it. Switch to Place Booths to click or drag and
+          add new ones.
         </p>
 
         {pageError && (
@@ -923,7 +1382,18 @@ export default function VenueMapEditorPage() {
             <div className="flex gap-1 text-sm">
               <button
                 type="button"
-                onClick={() => setMode("booth")}
+                onClick={() => switchMode("select")}
+                className={`rounded-md border px-3 py-1.5 font-medium ${
+                  mode === "select"
+                    ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
+                    : "border-gray-300 dark:border-gray-700"
+                }`}
+              >
+                Select booths
+              </button>
+              <button
+                type="button"
+                onClick={() => switchMode("booth")}
                 className={`rounded-md border px-3 py-1.5 font-medium ${
                   mode === "booth"
                     ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
@@ -934,7 +1404,7 @@ export default function VenueMapEditorPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setMode("section")}
+                onClick={() => switchMode("section")}
                 className={`rounded-md border px-3 py-1.5 font-medium ${
                   mode === "section"
                     ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
@@ -943,28 +1413,44 @@ export default function VenueMapEditorPage() {
               >
                 Mark category zones
               </button>
+              <button
+                type="button"
+                onClick={() => switchMode("amenity")}
+                className={`rounded-md border px-3 py-1.5 font-medium ${
+                  mode === "amenity"
+                    ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
+                    : "border-gray-300 dark:border-gray-700"
+                }`}
+              >
+                Place custom vendors
+              </button>
             </div>
+
+            {mode === "select" && (
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                {selectedBoothIds.size > 0 ? (
+                  <div className="flex items-center gap-2 rounded-md bg-amber-50 px-2.5 py-1 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                    <span>
+                      {selectedBoothIds.size} selected — drag any one to move them together
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBoothIds(new Set())}
+                      className="font-medium underline hover:no-underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-gray-400">
+                    Drag over empty space to select multiple booths.
+                  </span>
+                )}
+              </div>
+            )}
 
             {mode === "booth" && (
               <div className="flex flex-wrap items-center gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-500 dark:text-gray-400">Size:</span>
-                  {(Object.keys(BOOTH_SIZE_PRESETS) as BoothSizeKey[]).map((key) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setNewBoothSize(key)}
-                      className={`rounded-md border px-2.5 py-1 font-medium ${
-                        newBoothSize === key
-                          ? "border-brand-blue bg-brand-blue/10 text-brand-blue"
-                          : "border-gray-300 dark:border-gray-700"
-                      }`}
-                    >
-                      {BOOTH_SIZE_PRESETS[key].label}
-                    </button>
-                  ))}
-                </div>
-
                 <label className="flex items-center gap-2">
                   <span className="text-gray-500 dark:text-gray-400">Price ($):</span>
                   <input
@@ -977,21 +1463,22 @@ export default function VenueMapEditorPage() {
                   />
                 </label>
 
-                <label className="flex items-center gap-2">
-                  <span className="text-gray-500 dark:text-gray-400">Row:</span>
-                  <input
-                    type="text"
-                    value={boothRowPrefix}
-                    onChange={(e) =>
-                      setBoothRowPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))
-                    }
-                    placeholder="A"
-                    className="w-14 rounded-md border border-gray-300 px-2 py-1 text-center uppercase dark:border-gray-700 dark:bg-transparent"
-                  />
-                </label>
+                <span className="text-gray-400">Next: {nextPlainBoothNumber(booths)}</span>
 
+                <button
+                  type="button"
+                  onClick={openGridModal}
+                  className="rounded-md border border-gray-300 px-2.5 py-1 font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                >
+                  Generate Grid…
+                </button>
+              </div>
+            )}
+
+            {mode === "amenity" && (
+              <div className="flex flex-wrap items-center gap-4 text-sm">
                 <span className="text-gray-400">
-                  Next: {nextBoothNumber(booths, boothRowPrefix || "A")}
+                  Drag to draw a marker, then add a brand name and logo.
                 </span>
               </div>
             )}
@@ -1048,18 +1535,22 @@ export default function VenueMapEditorPage() {
 
             {booths.map((booth) => {
               const rect =
-                liveRect && liveRect.kind === "booth" && liveRect.id === booth.id
+                liveGroupRects?.get(booth.id) ??
+                (liveRect && liveRect.kind === "booth" && liveRect.id === booth.id
                   ? liveRect.rect
-                  : rectFromShape(booth);
+                  : rectFromShape(booth));
               const isPending = pendingCreateIds.has(booth.id) || pendingUpdateIds.has(booth.id);
+              const isSelected = selectedBoothIds.has(booth.id);
               return (
                 <div
                   key={`booth-${booth.id}`}
                   onMouseDown={(e) => startMoveBooth(e, booth)}
                   title={`Booth ${booth.booth_number} — $${booth.price}${isPending ? " (unsaved)" : ""}`}
-                  className={`absolute rounded border-2 bg-brand-blue/20 hover:bg-brand-blue/30 ${
-                    mode === "booth" ? "cursor-move" : "pointer-events-none"
-                  } ${isPending ? "border-dashed border-brand-blue" : "border-brand-blue"}`}
+                  className={`absolute flex items-center justify-center overflow-hidden rounded border-2 bg-brand-blue/20 hover:bg-brand-blue/30 ${
+                    mode === "section" || mode === "amenity" ? "pointer-events-none" : "cursor-move"
+                  } ${isPending ? "border-dashed border-brand-blue" : "border-brand-blue"} ${
+                    isSelected ? "z-10 ring-2 ring-amber-400 ring-offset-1" : ""
+                  }`}
                   style={{
                     left: `${rect.x}%`,
                     top: `${rect.y}%`,
@@ -1067,13 +1558,60 @@ export default function VenueMapEditorPage() {
                     height: `${rect.h}%`,
                   }}
                 >
-                  <span className="pointer-events-none absolute -top-5 left-0 whitespace-nowrap rounded bg-brand-navy px-1.5 py-0.5 text-[10px] font-medium text-white">
+                  <span className="pointer-events-none truncate px-0.5 text-[10px] font-medium text-brand-navy dark:text-white">
                     {booth.booth_number}
                   </span>
                   {mode === "booth" && (
                     <div
                       onMouseDown={(e) => startResizeBooth(e, booth)}
                       className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize rounded-sm border border-white bg-brand-blue"
+                    />
+                  )}
+                </div>
+              );
+            })}
+
+            {amenities.map((amenity) => {
+              const rect =
+                liveRect && liveRect.kind === "amenity" && liveRect.id === amenity.id
+                  ? liveRect.rect
+                  : rectFromShape(amenity);
+              const theme = themeFor(amenity.label);
+              return (
+                <div
+                  key={`amenity-${amenity.id}`}
+                  onMouseDown={(e) => startMoveAmenity(e, amenity)}
+                  title={amenity.label || "Custom vendor"}
+                  className={`absolute overflow-hidden rounded border-2 border-emerald-500 ${
+                    mode === "amenity" ? "cursor-move" : "pointer-events-none"
+                  }`}
+                  style={{
+                    left: `${rect.x}%`,
+                    top: `${rect.y}%`,
+                    width: `${rect.w}%`,
+                    height: `${rect.h}%`,
+                  }}
+                >
+                  {amenity.logo_image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={amenity.logo_image_url}
+                      alt=""
+                      className="pointer-events-none h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div
+                      className={`pointer-events-none flex h-full w-full items-center justify-center p-0.5 text-center ${theme.avatarClassName}`}
+                    >
+                      <span className="truncate text-[9px] font-medium text-white">
+                        {amenity.label || "Custom"}
+                      </span>
+                    </div>
+                  )}
+                  {mode === "amenity" && (
+                    <div
+                      onMouseDown={(e) => startResizeAmenity(e, amenity)}
+                      className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize rounded-sm border border-white bg-emerald-600"
                     />
                   )}
                 </div>
@@ -1091,6 +1629,18 @@ export default function VenueMapEditorPage() {
                 }}
               />
             )}
+
+            {marqueeRect && (
+              <div
+                className="pointer-events-none absolute border-2 border-dashed border-amber-500 bg-amber-400/10"
+                style={{
+                  left: `${marqueeRect.x}%`,
+                  top: `${marqueeRect.y}%`,
+                  width: `${marqueeRect.w}%`,
+                  height: `${marqueeRect.h}%`,
+                }}
+              />
+            )}
           </div>
         )}
 
@@ -1098,7 +1648,8 @@ export default function VenueMapEditorPage() {
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {booths.length} booth{booths.length === 1 ? "" : "s"}, {sections.length} category
-              zone{sections.length === 1 ? "" : "s"}.
+              zone{sections.length === 1 ? "" : "s"}, {amenities.length} custom vendor
+              {amenities.length === 1 ? "" : "s"}.
             </p>
             {isDirty && (
               <div className="flex items-center gap-2">
@@ -1169,41 +1720,32 @@ export default function VenueMapEditorPage() {
               </div>
 
               <div>
-                <span className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                  Snap to standard size
-                </span>
-                <div className="flex gap-2 text-sm">
-                  {(Object.keys(BOOTH_SIZE_PRESETS) as BoothSizeKey[]).map((key) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => {
-                        if (!editingBooth) return;
-                        const preset = BOOTH_SIZE_PRESETS[key];
-                        const base = rectFromShape(editingBooth);
-                        setBooths((current) =>
-                          current.map((b) =>
-                            b.id === editingBooth.id
-                              ? {
-                                  ...b,
-                                  position_x: clamp(base.x, 0, 100 - preset.w).toFixed(2),
-                                  position_y: clamp(base.y, 0, 100 - preset.h).toFixed(2),
-                                  width: preset.w.toFixed(2),
-                                  height: preset.h.toFixed(2),
-                                }
-                              : b,
-                          ),
-                        );
-                        if (!pendingCreateIds.has(editingBooth.id)) {
-                          setPendingUpdateIds((c) => new Set(c).add(editingBooth.id));
-                        }
-                      }}
-                      className="rounded-md border border-gray-300 px-3 py-1.5 font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-                    >
-                      {BOOTH_SIZE_PRESETS[key].label}
-                    </button>
-                  ))}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!editingBooth) return;
+                    const base = rectFromShape(editingBooth);
+                    setBooths((current) =>
+                      current.map((b) =>
+                        b.id === editingBooth.id
+                          ? {
+                              ...b,
+                              position_x: clamp(base.x, 0, 100 - BOOTH_SIZE.w).toFixed(2),
+                              position_y: clamp(base.y, 0, 100 - BOOTH_SIZE.h).toFixed(2),
+                              width: BOOTH_SIZE.w.toFixed(2),
+                              height: BOOTH_SIZE.h.toFixed(2),
+                            }
+                          : b,
+                      ),
+                    );
+                    if (!pendingCreateIds.has(editingBooth.id)) {
+                      setPendingUpdateIds((c) => new Set(c).add(editingBooth.id));
+                    }
+                  }}
+                  className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                >
+                  Reset to standard size
+                </button>
               </div>
 
               {boothFormError && (
@@ -1305,6 +1847,270 @@ export default function VenueMapEditorPage() {
                     Save
                   </button>
                 </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingAmenity !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={closeAmenityForm}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold">
+              {editingAmenity === "new" ? "New custom vendor" : "Edit custom vendor"}
+            </h2>
+
+            <form onSubmit={handleAmenityFormSubmit} className="mt-4 space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                  Brand name
+                </label>
+                <input
+                  type="text"
+                  value={amenityLabel}
+                  onChange={(e) => setAmenityLabel(e.target.value)}
+                  placeholder="e.g. Acme Trading Co"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                  Logo (optional — falls back to a solid color with the brand name)
+                </label>
+                <div className="flex items-center gap-3">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900">
+                    <svg
+                      viewBox="0 0 20 20"
+                      fill="none"
+                      className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400"
+                    >
+                      <path
+                        d="M10 3v9m0-9 3.5 3.5M10 3 6.5 6.5M4 13v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-2"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <span className="max-w-[10rem] truncate">
+                      {amenityLogoFile ? amenityLogoFile.name : "Choose file"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setAmenityLogoFile(e.target.files?.[0] ?? null)}
+                      className="hidden"
+                    />
+                  </label>
+                  {editingAmenity !== "new" && editingAmenity.logo_image_url && !amenityLogoFile && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={editingAmenity.logo_image_url}
+                      alt="Current logo"
+                      className="h-10 w-10 rounded-full object-cover"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {amenityFormError && (
+                <p className="text-sm text-red-600 dark:text-red-400">{amenityFormError}</p>
+              )}
+
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  {editingAmenity !== "new" && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteAmenity}
+                      disabled={amenitySubmitting}
+                      className="rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={closeAmenityForm}
+                    className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={amenitySubmitting}
+                    className="rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {gridModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-8"
+          onClick={closeGridModal}
+        >
+          <div
+            className="max-h-[calc(100vh-4rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold">Generate a booth grid</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Places a perfectly-aligned grid of booths for you — pairs of booths face each other
+              across an aisle (e.g. {gridStartNumber || "100"} across from{" "}
+              {Number(gridStartNumber || "100") + Number(gridColumnStep || "2")}), with the next
+              row of pairs starting {gridBandStep || "100"} higher.
+            </p>
+
+            <form onSubmit={handleGenerateGrid} className="mt-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                    Rows (aisle bands)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={gridRows}
+                    onChange={(e) => setGridRows(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                    Columns
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={gridColumns}
+                    onChange={(e) => setGridColumns(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                    Columns per aisle group
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={gridColumnsPerGroup}
+                    onChange={(e) => setGridColumnsPerGroup(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                    Starting number
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={gridStartNumber}
+                    onChange={(e) => setGridStartNumber(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                    Column step
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={gridColumnStep}
+                    onChange={(e) => setGridColumnStep(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                    Band step
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={gridBandStep}
+                    onChange={(e) => setGridBandStep(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <span className="mb-1 block text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                  Preview
+                </span>
+                {gridPreview ? (
+                  <>
+                    <div
+                      className="relative w-full overflow-hidden rounded-md border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-950"
+                      style={{
+                        aspectRatio: `${gridPreview.bounds.width} / ${gridPreview.bounds.height}`,
+                      }}
+                    >
+                      {gridPreview.booths.map((b, i) => (
+                        <div
+                          key={i}
+                          className="absolute rounded-sm bg-brand-blue/60"
+                          style={{
+                            left: `${(b.position_x / gridPreview.bounds.width) * 100}%`,
+                            top: `${(b.position_y / gridPreview.bounds.height) * 100}%`,
+                            width: `${(b.width / gridPreview.bounds.width) * 100}%`,
+                            height: `${(b.height / gridPreview.bounds.height) * 100}%`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <p className="mt-1 text-xs text-gray-400">
+                      {gridPreview.booths.length} booths, numbered{" "}
+                      {gridPreview.booths[0].booth_number}–
+                      {gridPreview.booths[gridPreview.booths.length - 1].booth_number}.
+                    </p>
+                  </>
+                ) : (
+                  <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-gray-300 text-xs text-gray-400 dark:border-gray-700">
+                    Enter valid values above to preview the grid.
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-gray-400">
+                Uses the price set above (${defaultBoothPrice || "0"}) for every generated booth.
+                You can still drag, resize, rename, or delete any of them afterward.
+              </p>
+
+              {gridError && <p className="text-sm text-red-600 dark:text-red-400">{gridError}</p>}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeGridModal}
+                  className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy"
+                >
+                  Generate
+                </button>
               </div>
             </form>
           </div>

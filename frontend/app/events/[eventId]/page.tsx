@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AuthPageSpinner } from "@/components/AuthPageSpinner";
+import { CountdownTimer } from "@/components/CountdownTimer";
 import { FloorMapCanvas } from "@/components/FloorMapCanvas";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
@@ -92,6 +93,26 @@ export default function EventDetailPage() {
         <Link href="/events" className="text-sm font-medium text-brand-blue hover:underline">
           &larr; Back to all events
         </Link>
+
+        {event.status === "upcoming" && (
+          <div className="mt-4 rounded-xl border-2 border-brand-blue/30 bg-brand-blue/5 px-6 py-5 text-center shadow-sm dark:border-brand-blue/40 dark:bg-brand-blue/10">
+            {user?.role === "vendor" && event.registration_deadline ? (
+              <CountdownTimer
+                target={event.registration_deadline}
+                label="Vendor registration closes in"
+                expiredLabel="Vendor registration has closed"
+                size="hero"
+              />
+            ) : (
+              <CountdownTimer
+                target={`${event.start_date}T00:00:00`}
+                label="Event starts in"
+                expiredLabel="Event has started"
+                size="hero"
+              />
+            )}
+          </div>
+        )}
 
         <div className="relative mt-4 h-56 w-full overflow-hidden rounded-lg sm:h-72">
           <Image

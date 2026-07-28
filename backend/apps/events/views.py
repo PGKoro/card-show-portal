@@ -11,7 +11,15 @@ from rest_framework.views import APIView
 from apps.core.permissions import IsAdminRole, IsApprovedVendor
 from apps.users.models import User
 
-from .models import MAP_IMAGE_PRESET_KEYS, Booth, BoothRegistration, Event, Venue, VenueSection
+from .models import (
+    MAP_IMAGE_PRESET_KEYS,
+    Booth,
+    BoothRegistration,
+    Event,
+    Venue,
+    VenueAmenity,
+    VenueSection,
+)
 from .serializers import (
     BoothRegistrationSerializer,
     BoothSerializer,
@@ -20,6 +28,7 @@ from .serializers import (
     PendingBoothRegistrationSerializer,
     VendorBoothRegistrationSerializer,
     VendorBoothSerializer,
+    VenueAmenitySerializer,
     VenueMapSerializer,
     VenueSectionSerializer,
     VenueSerializer,
@@ -318,6 +327,43 @@ class VenueSectionDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated, IsAdminRole]
     serializer_class = VenueSectionSerializer
     queryset = VenueSection.objects.all()
+
+
+class VenueAmenityListCreateView(generics.ListCreateAPIView):
+    """
+    GET/POST /api/v1/venues/<id>/amenities/ — admin-only listing/placement
+    of manually-authored "custom vendor" markers on a venue's floor plan.
+    Publicly exposed (read-only, no sensitive data) via
+    EventMapView/EventMapSerializer.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminRole]
+    serializer_class = VenueAmenitySerializer
+
+    def get_venue(self):
+        return get_object_or_404(Venue, pk=self.kwargs["pk"])
+
+    def get_queryset(self):
+        return VenueAmenity.objects.filter(venue=self.get_venue())
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["venue"] = self.get_venue()
+        return context
+
+    def perform_create(self, serializer):
+        serializer.save(venue=self.get_venue())
+
+
+class VenueAmenityDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET/PATCH/DELETE /api/v1/venues/amenities/<id>/ — admin-only edit
+    (reposition/resize/relabel/replace logo) or removal of a single marker.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminRole]
+    serializer_class = VenueAmenitySerializer
+    queryset = VenueAmenity.objects.all()
 
 
 class BoothRegistrationListCreateView(generics.ListCreateAPIView):

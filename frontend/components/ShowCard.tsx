@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { CountdownTimer } from "@/components/CountdownTimer";
 import { useAuth } from "@/lib/AuthContext";
 import { formatEventDateRange, type ShowEvent } from "@/lib/events";
 
@@ -44,6 +45,14 @@ export function ShowCard({ show }: { show: ShowEvent }) {
             ? `${show.vendor_count} vendors booked`
             : `${show.vendor_count} vendors · ~${show.estimated_attendees.toLocaleString()} attendees`}
         </p>
+        {show.status === "upcoming" && (
+          <CountdownTimer
+            target={`${show.start_date}T00:00:00`}
+            label="Starts in"
+            expiredLabel="Starting today"
+            className="mt-1"
+          />
+        )}
       </Link>
 
       {canSelectBooth && (

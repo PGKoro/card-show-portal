@@ -7,23 +7,14 @@ import { useEffect, useState, type FormEvent } from "react";
 import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { apiFetch, getApiErrorMessage } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
-import type { ShowEvent } from "@/lib/events";
+import { toDatetimeLocalValue, type ShowEvent } from "@/lib/events";
 import { EventForm, type EventFormPayload } from "../EventForm";
-
-function toDatetimeLocal(iso: string | null): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`;
-}
 
 function FloorPlanPanel({ event, onEventUpdate }: { event: ShowEvent; onEventUpdate: (e: ShowEvent) => void }) {
   const [mapVisible, setMapVisible] = useState(event.map_visible);
   const [mapVisibleToVendors, setMapVisibleToVendors] = useState(event.map_visible_to_vendors);
   const [loyaltyDeadline, setLoyaltyDeadline] = useState(
-    toDatetimeLocal(event.loyalty_priority_deadline),
+    toDatetimeLocalValue(event.loyalty_priority_deadline),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -218,6 +209,7 @@ export default function EditEventPage() {
             vendors_detail: event.vendors_detail,
             map_venue: event.map_venue,
             map_venue_detail: event.map_venue_detail,
+            registration_deadline: event.registration_deadline,
           }}
           onSubmit={handleSubmit}
         />
