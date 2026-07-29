@@ -15,6 +15,7 @@ from apps.users.views import (
     AdminUserSearchView,
     ApproveVendorView,
     ArchiveUserView,
+    FlagUserView,
     GoogleLoginView,
     MicrosoftLoginView,
     OnboardingDetailsView,
@@ -30,6 +31,7 @@ from apps.users.views import (
     ThrottledLoginView,
     ThrottledPasswordResetView,
     ThrottledRegisterView,
+    UnflagUserView,
 )
 
 urlpatterns = [
@@ -124,6 +126,16 @@ urlpatterns = [
         "api/v1/admin/users/<int:pk>/archive/",
         ArchiveUserView.as_view(),
         name="archive-user",
+    ),
+    path(
+        "api/v1/admin/users/<int:pk>/flag/",
+        FlagUserView.as_view(),
+        name="flag-user",
+    ),
+    path(
+        "api/v1/admin/users/<int:pk>/unflag/",
+        UnflagUserView.as_view(),
+        name="unflag-user",
     ),
     path(
         "api/v1/admin/users/<int:pk>/restore/",

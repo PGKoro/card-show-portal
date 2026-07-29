@@ -17,6 +17,7 @@ from apps.core.permissions import IsAdminRole
 from .models import User
 from .serializers import (
     AdminCreateUserSerializer,
+    AdminUserDetailSerializer,
     AdminUserSerializer,
     OnboardingBasicSerializer,
     OnboardingDetailsSerializer,
@@ -43,8 +44,6 @@ class OnboardingView(generics.UpdateAPIView):
 
     def update(self, request, *args, **kwargs):
         super().update(request, *args, **kwargs)
-        # Respond with the full user shape (same as /auth/user/) so the
-        # frontend can update its auth state in one round trip.
         return Response(UserDetailsSerializer(request.user).data)
 
 
@@ -52,10 +51,7 @@ class OnboardingDetailsView(generics.UpdateAPIView):
     """
     Onboarding step 2: PATCH /api/v1/auth/onboarding/details/.
     Role-specific details (business info for vendors, interests for
-    customers) — role itself was already set by OnboardingView. Setting
-    role=vendor here sets vendor_status to pending_review — see
-    apps.core.permissions.IsApprovedVendor for how that gates listing
-    creation.
+    customers) — role itself was already set by OnboardingView.
     """
 
     permission_classes = [IsAuthenticated]
@@ -70,13 +66,7 @@ class OnboardingDetailsView(generics.UpdateAPIView):
 
 
 class ProfileView(generics.UpdateAPIView):
-    """
-    PATCH /api/v1/auth/profile/ — "Profile Settings" for an
-    already-onboarded user: edit your own name and role-specific details
-    (business info for vendors, interests for customers) after the fact.
-    See ProfileSerializer for exactly what's editable — role itself is
-    never touched here.
-    """
+    """PATCH /api/v1/auth/profile/ — self-service profile settings."""
 
     permission_classes = [IsAuthenticated]
     serializer_class = ProfileSerializer
@@ -102,12 +92,6 @@ class PendingVendorListView(generics.ListAPIView):
 
 
 class VendorDecisionView(APIView):
-    """
-    POST /api/v1/admin/vendors/<id>/approve/ or /reject/. `decision` is
-    fixed per-URL (see urls.py) rather than taken from the request body, so
-    an admin can't approve/reject the wrong account by mistyping a field.
-    """
-
     permission_classes = [IsAdminRole]
     decision = None
 
@@ -129,14 +113,15 @@ class RejectVendorView(VendorDecisionView):
 class AdminUserSearchView(generics.ListAPIView):
     """
     GET /api/v1/admin/users/?search=<email, business name, or person's
-    name>&role=<vendor|customer|admin>&tier=<premium|standard|basic>.
+    name>&role=<vendor|customer|admin>&tier=<premium|standard|basic>&flagged=1.
     Backs the "Manage Roles" tool (search any user to change their role), the
     event vendor-picker (?role=vendor, to find vendors to attach to an
-    event), the floor-map booth vendor-picker, and the "Vendor Tiers" tool
-    (?role=vendor&tier=..., paginated per tab). `search` matches email,
-    business name, or first/last name — business_name/first_name/last_name
-    are blank for accounts that don't use them, so matching is a no-op there
-    rather than a false positive.
+    event), the floor-map booth vendor-picker, the "Vendor Tiers" tool
+    (?role=vendor&tier=..., paginated per tab), and the flagged-accounts
+    filter in Manage Accounts. `search` matches email, business name, or
+    first/last name — business_name/first_name/last_name are blank for
+    accounts that don't use them, so matching is a no-op there rather than a
+    false positive.
     """
 
     permission_classes = [IsAdminRole]
@@ -151,6 +136,8 @@ class AdminUserSearchView(generics.ListAPIView):
             queryset = queryset.filter(role=role)
         if tier in (User.VendorTier.PREMIUM, User.VendorTier.STANDARD, User.VendorTier.BASIC):
             queryset = queryset.filter(vendor_tier=tier)
+        if self.request.query_params.get("flagged", "").strip().lower() in ("1", "true", "yes"):
+            queryset = queryset.filter(flagged=True)
         if search:
             queryset = queryset.filter(
                 Q(email__icontains=search)
@@ -162,36 +149,14 @@ class AdminUserSearchView(generics.ListAPIView):
 
 
 class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    GET /api/v1/admin/users/<id>/ — full submitted profile for one user
-    (used by the "view details" link on a pending vendor approval, and by
-    "Manage Accounts"' Manage page). UserDetailsSerializer never includes
-    password, so there's nothing to exclude there.
-
-    PATCH — an admin edits another account's name/business info directly
-    (the "Manage" action in Manage Accounts). Reuses ProfileSerializer as-is
-    — it already operates on whatever instance get_object() resolves to
-    (not necessarily request.user) and already has the right validation
-    (category tags against the live vocabulary, business_name required for
-    vendors). Deliberately still can't touch email/role/vendor_status/
-    archived here — those go through their own dedicated endpoints
-    (SetUserRoleView, Archive/RestoreUserView) so this can't be used as a
-    side door around them.
-
-    DELETE — permanently removes the account, backing "Manage Accounts"'
-    delete action. Cascades to their own listings (Listing.vendor is
-    on_delete=CASCADE); any booth registrations just lose the vendor link
-    (on_delete=SET_NULL), same as the existing "unlinked vendor" case.
-    An admin can't delete their own account this way — that'd have to go
-    through a different account first.
-    """
+    """GET/PATCH/DELETE a single user for Manage Accounts."""
 
     permission_classes = [IsAdminRole]
     queryset = User.objects.all()
 
     def get_serializer_class(self):
         if self.request.method in ("PATCH", "PUT"):
-            return ProfileSerializer
+            return AdminUserDetailSerializer
         return AdminUserSerializer
 
     def update(self, request, *args, **kwargs):
@@ -205,18 +170,6 @@ class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class ArchiveUserView(APIView):
-    """
-    POST /api/v1/admin/users/<id>/archive/ — soft-disables an account
-    without deleting it. Deliberately doesn't touch is_active (Django's
-    auth backends would then refuse login outright) — an archived account
-    can still log in, but apps.core.permissions.HasRole rejects every
-    role-gated action for it, it drops out of public vendor/listing
-    browsing (see PublicVendorListView/DetailView, PublicListingListView),
-    and the frontend redirects it to a "contact support" page instead of
-    any real page. Reversible via RestoreUserView below. An admin can't
-    archive their own account (self-lockout guard).
-    """
-
     permission_classes = [IsAdminRole]
 
     def post(self, request, pk):
@@ -232,8 +185,6 @@ class ArchiveUserView(APIView):
 
 
 class RestoreUserView(APIView):
-    """POST /api/v1/admin/users/<id>/restore/ — reverses ArchiveUserView."""
-
     permission_classes = [IsAdminRole]
 
     def post(self, request, pk):
@@ -243,12 +194,28 @@ class RestoreUserView(APIView):
         return Response(UserDetailsSerializer(user).data)
 
 
+class FlagUserView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request, pk):
+        user = get_object_or_404(User, pk=pk)
+        user.flagged = True
+        user.save(update_fields=["flagged"])
+        return Response(UserDetailsSerializer(user).data)
+
+
+class UnflagUserView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request, pk):
+        user = get_object_or_404(User, pk=pk)
+        user.flagged = False
+        user.save(update_fields=["flagged"])
+        return Response(UserDetailsSerializer(user).data)
+
+
 class AdminCreateUserView(generics.CreateAPIView):
-    """
-    POST /api/v1/admin/users/create/ — backs the "Account Creator" tool
-    (an admin directly provisioning a customer/vendor account instead of
-    the person going through public signup + onboarding themselves).
-    """
+    """POST /api/v1/admin/users/create/ — admin provisioning tool."""
 
     permission_classes = [IsAdminRole]
     serializer_class = AdminCreateUserSerializer
@@ -261,10 +228,7 @@ class AdminCreateUserView(generics.CreateAPIView):
 
 
 class SetUserRoleView(APIView):
-    """
-    POST /api/v1/admin/users/<id>/set-role/ with {"role": "customer" |
-    "vendor" | "admin"} — backs the "Manage Roles" tool's three-way flip.
-    """
+    """POST /api/v1/admin/users/<id>/set-role/."""
 
     permission_classes = [IsAdminRole]
 
@@ -280,20 +244,11 @@ class SetUserRoleView(APIView):
         user.role = new_role
 
         if new_role == User.Role.ADMIN:
-            # Same reasoning as create_superuser (see UserManager): admins
-            # never go through the vendor/customer /onboarding wizard, which
-            # has no "admin" role choice — so a promoted user who hadn't
-            # finished onboarding yet must not get routed there.
             user.onboarding_completed = True
         elif new_role == User.Role.VENDOR:
-            # A user becoming a vendor for the first time still needs
-            # approval before they can list anything (see IsApprovedVendor).
-            # If they were already a vendor before (vendor_status already
-            # set), leave that decision as-is rather than resetting it.
             if user.vendor_status is None:
                 user.vendor_status = User.VendorStatus.PENDING_REVIEW
         else:
-            # Customers don't have a vendor_status.
             user.vendor_status = None
 
         user.save(update_fields=["role", "onboarding_completed", "vendor_status"])
@@ -338,82 +293,36 @@ class SetVendorTierView(APIView):
 
 
 class ThrottledLoginView(LoginView):
-    """
-    Same as dj-rest-auth's LoginView, just rate-limited — login is the
-    highest-value target for credential-stuffing/brute-force, and the
-    project-wide anon/user throttle rates (settings.REST_FRAMEWORK) are
-    deliberately loose enough not to interfere with normal public browsing,
-    so this needs its own tighter scope. See config/urls.py for where this
-    is swapped in ahead of dj_rest_auth.urls' own unthrottled route.
-
-    No throttle_classes override here — ScopedRateThrottle is picked up from
-    settings.REST_FRAMEWORK's DEFAULT_THROTTLE_CLASSES (it's a no-op on any
-    view that doesn't set throttle_scope), so local/test settings can still
-    disable throttling project-wide without these views ignoring it.
-    """
-
     throttle_scope = "auth"
 
 
 class ThrottledRegisterView(RegisterView):
-    """Same reasoning as ThrottledLoginView — signup can otherwise be spammed."""
-
     throttle_scope = "auth"
 
 
 class ThrottledPasswordResetView(PasswordResetView):
-    """Same reasoning as ThrottledLoginView — otherwise floods a user's inbox."""
-
     throttle_scope = "auth"
 
 
 class GoogleLoginView(SocialLoginView):
-    """
-    Exchanges a Google OAuth2 `code` (obtained by the frontend via Google's
-    consent screen) for an authenticated session, returning our own JWT
-    pair. POST body: {"code": "..."}.
-    """
-
     adapter_class = GoogleOAuth2Adapter
     client_class = OAuth2Client
     callback_url = settings.GOOGLE_OAUTH_CALLBACK_URL
 
 
 class MicrosoftLoginView(SocialLoginView):
-    """Same flow as GoogleLoginView, for Microsoft/Azure AD OAuth2."""
-
     adapter_class = MicrosoftGraphOAuth2Adapter
     client_class = OAuth2Client
     callback_url = settings.MICROSOFT_OAUTH_CALLBACK_URL
 
 
 class PublicVendorDetailView(generics.RetrieveAPIView):
-    """
-    GET /api/v1/vendors/<id>/ — public profile for a vendor account
-    (business_name/description/location/category_tags only). Backs the
-    floor map's click-through for booths linked to a real account, and
-    that vendor's own minimal public profile page. Any vendor account
-    qualifies regardless of approval status — the map reflects who's
-    physically at the show, not who's cleared to list online yet.
-    """
-
     permission_classes = [AllowAny]
     serializer_class = PublicVendorSerializer
     queryset = User.objects.filter(role=User.Role.VENDOR, archived=False)
 
 
 class PublicVendorListView(generics.ListAPIView):
-    """
-    GET /api/v1/vendors/ — public directory of vendors (backs the /vendors
-    browse page and homepage's "Featured vendors"). Unlike
-    PublicVendorDetailView, this only surfaces *approved* vendors — a
-    pending/rejected vendor shouldn't show up in public browsing before an
-    admin has cleared them, even though the map still needs to show anyone
-    physically assigned a booth regardless of status. Archived accounts are
-    excluded from both views regardless of approval status — see
-    ArchiveUserView.
-    """
-
     permission_classes = [AllowAny]
     serializer_class = PublicVendorSerializer
 

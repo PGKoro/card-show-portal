@@ -123,6 +123,12 @@ class User(AbstractUser):
     # redirects it to a "contact support" page instead of any real page.
     archived = models.BooleanField(default=False)
 
+    # Admin moderation flag used by Manage Accounts for quick triage.
+    flagged = models.BooleanField(default=False)
+
+    # Internal admin notes shown in Manage Accounts.
+    notes = models.TextField(blank=True, default="")
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 

@@ -668,6 +668,59 @@ class AdminUserManagementTests(APITestCase):
         self.assertEqual(promote.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class UserFlaggingTests(APITestCase):
+    """Covers the flagged-account marker and its search filter."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            email="flag-admin@example.com", password="s3cret!23"
+        )
+        self.customer = User.objects.create_user(
+            email="flag-target@example.com", password="s3cret!23"
+        )
+        login = self.client.post(
+            "/api/v1/auth/login/", {"email": "flag-admin@example.com", "password": "s3cret!23"}
+        )
+        self.admin_access = login.data["access"]
+
+    def auth_header(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.admin_access}"}
+
+    def test_search_flagged_only_filters_flagged_accounts(self):
+        self.customer.flagged = True
+        self.customer.save(update_fields=["flagged"])
+        response = self.client.get("/api/v1/admin/users/?flagged=true", **self.auth_header())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        emails = [u["email"] for u in response.data["results"]]
+        self.assertIn("flag-target@example.com", emails)
+        self.assertNotIn("flag-admin@example.com", emails)
+
+    def test_flag_and_unflag_user(self):
+        flag = self.client.post(
+            f"/api/v1/admin/users/{self.customer.pk}/flag/", **self.auth_header()
+        )
+        self.assertEqual(flag.status_code, status.HTTP_200_OK)
+        self.assertTrue(flag.data["flagged"])
+
+        unflag = self.client.post(
+            f"/api/v1/admin/users/{self.customer.pk}/unflag/", **self.auth_header()
+        )
+        self.assertEqual(unflag.status_code, status.HTTP_200_OK)
+        self.assertFalse(unflag.data["flagged"])
+
+    def test_non_admin_cannot_access_flag_endpoints(self):
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "flag-target@example.com", "password": "s3cret!23"},
+        )
+        access = login.data["access"]
+        response = self.client.post(
+            f"/api/v1/admin/users/{self.customer.pk}/flag/",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
 class VendorTierManagementTests(APITestCase):
     """Covers the "Vendor Tiers" admin tool: searching/filtering vendors by
     tier and reassigning a vendor's tier — the only way that field changes."""
@@ -878,17 +931,41 @@ class AdminUserDetailTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_editing_cannot_change_role_or_email(self):
+    def test_editing_cannot_change_role(self):
+        # Role changes stay admin-only via SetUserRoleView (see
+        # AdminUserManagementTests) — this endpoint can't be used as a side
+        # door around that, even though it can now edit email (see
+        # test_admin_can_edit_email_and_notes below).
         response = self.client.patch(
             f"/api/v1/admin/users/{self.vendor.pk}/",
-            {"role": "admin", "email": "hijacked@example.com"},
+            {"role": "admin"},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.vendor.refresh_from_db()
         self.assertEqual(self.vendor.role, User.Role.VENDOR)
-        self.assertEqual(self.vendor.email, "detail-vendor@example.com")
+
+    def test_admin_can_edit_email_and_notes(self):
+        response = self.client.patch(
+            f"/api/v1/admin/users/{self.vendor.pk}/",
+            {"email": "updated-vendor@example.com", "notes": "Follow up in March"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["email"], "updated-vendor@example.com")
+        self.assertEqual(response.data["notes"], "Follow up in March")
+
+    def test_editing_rejects_duplicate_email(self):
+        User.objects.create_user(email="taken@example.com", password="s3cret!23")
+        response = self.client.patch(
+            f"/api/v1/admin/users/{self.vendor.pk}/",
+            {"email": "taken@example.com"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_non_admin_cannot_edit_another_account(self):
         login = self.client.post(
