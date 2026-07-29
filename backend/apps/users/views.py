@@ -17,6 +17,7 @@ from apps.core.permissions import IsAdminRole
 from .models import User
 from .serializers import (
     AdminCreateUserSerializer,
+    AdminUserSerializer,
     OnboardingBasicSerializer,
     OnboardingDetailsSerializer,
     ProfileSerializer,
@@ -127,27 +128,35 @@ class RejectVendorView(VendorDecisionView):
 
 class AdminUserSearchView(generics.ListAPIView):
     """
-    GET /api/v1/admin/users/?search=<email or business name>&role=<vendor|customer|admin>.
+    GET /api/v1/admin/users/?search=<email, business name, or person's
+    name>&role=<vendor|customer|admin>&tier=<premium|standard|basic>.
     Backs the "Manage Roles" tool (search any user to change their role), the
     event vendor-picker (?role=vendor, to find vendors to attach to an
-    event), and the floor-map booth vendor-picker. `search` matches email OR
-    business_name — vendors are more often found by their business name than
-    their account email, and business_name is blank for non-vendor users so
-    this is a no-op there.
+    event), the floor-map booth vendor-picker, and the "Vendor Tiers" tool
+    (?role=vendor&tier=..., paginated per tab). `search` matches email,
+    business name, or first/last name — business_name/first_name/last_name
+    are blank for accounts that don't use them, so matching is a no-op there
+    rather than a false positive.
     """
 
     permission_classes = [IsAdminRole]
-    serializer_class = UserDetailsSerializer
+    serializer_class = AdminUserSerializer
 
     def get_queryset(self):
         search = self.request.query_params.get("search", "").strip()
         role = self.request.query_params.get("role", "").strip()
+        tier = self.request.query_params.get("tier", "").strip()
         queryset = User.objects.order_by("email")
         if role in (User.Role.VENDOR, User.Role.CUSTOMER, User.Role.ADMIN):
             queryset = queryset.filter(role=role)
+        if tier in (User.VendorTier.PREMIUM, User.VendorTier.STANDARD, User.VendorTier.BASIC):
+            queryset = queryset.filter(vendor_tier=tier)
         if search:
             queryset = queryset.filter(
-                Q(email__icontains=search) | Q(business_name__icontains=search)
+                Q(email__icontains=search)
+                | Q(business_name__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
             )
         return queryset
 
@@ -183,11 +192,11 @@ class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_serializer_class(self):
         if self.request.method in ("PATCH", "PUT"):
             return ProfileSerializer
-        return UserDetailsSerializer
+        return AdminUserSerializer
 
     def update(self, request, *args, **kwargs):
         super().update(request, *args, **kwargs)
-        return Response(UserDetailsSerializer(self.get_object()).data)
+        return Response(AdminUserSerializer(self.get_object()).data)
 
     def perform_destroy(self, instance):
         if instance.pk == self.request.user.pk:
@@ -289,6 +298,43 @@ class SetUserRoleView(APIView):
 
         user.save(update_fields=["role", "onboarding_completed", "vendor_status"])
         return Response(UserDetailsSerializer(user).data, status=status.HTTP_200_OK)
+
+
+class SetVendorTierView(APIView):
+    """
+    POST /api/v1/admin/users/<id>/set-tier/ with {"tier": "premium" |
+    "standard" | "basic"} — backs the "Vendor Tiers" admin tool. This is the
+    *only* place a vendor's tier can change (deliberately not exposed
+    through ProfileSerializer/AdminCreateUserSerializer or any vendor-facing
+    endpoint — see AdminUserSerializer/User.vendor_tier). Only meaningful
+    for vendor accounts, so this rejects any other role outright rather than
+    silently no-op-ing.
+    """
+
+    permission_classes = [IsAdminRole]
+
+    def post(self, request, pk):
+        new_tier = request.data.get("tier")
+        if new_tier not in (
+            User.VendorTier.PREMIUM,
+            User.VendorTier.STANDARD,
+            User.VendorTier.BASIC,
+        ):
+            return Response(
+                {"tier": "Must be one of: premium, standard, basic."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = get_object_or_404(User, pk=pk)
+        if user.role != User.Role.VENDOR:
+            return Response(
+                {"detail": "Only vendor accounts have a tier."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.vendor_tier = new_tier
+        user.save(update_fields=["vendor_tier"])
+        return Response(AdminUserSerializer(user).data, status=status.HTTP_200_OK)
 
 
 class ThrottledLoginView(LoginView):

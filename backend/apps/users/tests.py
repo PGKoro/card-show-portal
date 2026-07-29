@@ -668,6 +668,126 @@ class AdminUserManagementTests(APITestCase):
         self.assertEqual(promote.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class VendorTierManagementTests(APITestCase):
+    """Covers the "Vendor Tiers" admin tool: searching/filtering vendors by
+    tier and reassigning a vendor's tier — the only way that field changes."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            email="tier-admin@example.com", password="s3cret!23"
+        )
+        self.vendor = User.objects.create_user(
+            email="tiered-vendor@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Card King Collectibles",
+            first_name="Jamie",
+            last_name="Fox",
+        )
+        self.customer = User.objects.create_user(
+            email="not-a-vendor@example.com", password="s3cret!23"
+        )
+        login = self.client.post(
+            "/api/v1/auth/login/", {"email": "tier-admin@example.com", "password": "s3cret!23"}
+        )
+        self.admin_access = login.data["access"]
+
+    def auth_header(self):
+        return {"HTTP_AUTHORIZATION": f"Bearer {self.admin_access}"}
+
+    def set_tier(self, user_pk, tier):
+        return self.client.post(
+            f"/api/v1/admin/users/{user_pk}/set-tier/",
+            {"tier": tier},
+            format="json",
+            **self.auth_header(),
+        )
+
+    def test_vendor_defaults_to_basic_tier(self):
+        self.assertEqual(self.vendor.vendor_tier, User.VendorTier.BASIC)
+
+    def test_admin_can_promote_vendor_to_premium(self):
+        response = self.set_tier(self.vendor.pk, "premium")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["vendor_tier"], User.VendorTier.PREMIUM)
+        self.vendor.refresh_from_db()
+        self.assertEqual(self.vendor.vendor_tier, User.VendorTier.PREMIUM)
+
+    def test_set_tier_rejects_invalid_tier(self):
+        response = self.set_tier(self.vendor.pk, "gold")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_set_tier_rejects_non_vendor_account(self):
+        response = self.set_tier(self.customer.pk, "premium")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_non_admin_cannot_set_tier(self):
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "not-a-vendor@example.com", "password": "s3cret!23"},
+        )
+        response = self.client.post(
+            f"/api/v1/admin/users/{self.vendor.pk}/set-tier/",
+            {"tier": "premium"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {login.data['access']}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_search_matches_first_or_last_name(self):
+        response = self.client.get(
+            "/api/v1/admin/users/?search=Jamie", **self.auth_header()
+        )
+        emails = [u["email"] for u in response.data["results"]]
+        self.assertIn("tiered-vendor@example.com", emails)
+
+        response = self.client.get(
+            "/api/v1/admin/users/?search=Fox", **self.auth_header()
+        )
+        emails = [u["email"] for u in response.data["results"]]
+        self.assertIn("tiered-vendor@example.com", emails)
+
+    def test_search_filters_by_tier(self):
+        User.objects.create_user(
+            email="other-tier-vendor@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Other Vendor",
+        )
+        self.set_tier(self.vendor.pk, "premium")
+
+        response = self.client.get(
+            "/api/v1/admin/users/?role=vendor&tier=premium", **self.auth_header()
+        )
+        emails = [u["email"] for u in response.data["results"]]
+        self.assertIn("tiered-vendor@example.com", emails)
+        self.assertNotIn("other-tier-vendor@example.com", emails)
+
+        response = self.client.get(
+            "/api/v1/admin/users/?role=vendor&tier=basic", **self.auth_header()
+        )
+        emails = [u["email"] for u in response.data["results"]]
+        self.assertIn("other-tier-vendor@example.com", emails)
+        self.assertNotIn("tiered-vendor@example.com", emails)
+
+    def test_admin_search_results_include_vendor_tier(self):
+        response = self.client.get(
+            "/api/v1/admin/users/?search=tiered-vendor", **self.auth_header()
+        )
+        result = next(u for u in response.data["results"] if u["email"] == self.vendor.email)
+        self.assertEqual(result["vendor_tier"], User.VendorTier.BASIC)
+
+    def test_own_self_view_never_exposes_vendor_tier(self):
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "tiered-vendor@example.com", "password": "s3cret!23"},
+        )
+        response = self.client.get(
+            "/api/v1/auth/user/", HTTP_AUTHORIZATION=f"Bearer {login.data['access']}"
+        )
+        self.assertNotIn("vendor_tier", response.data)
+
+
 class AdminUserDetailTests(APITestCase):
     """Covers the "view full submitted details" link on a vendor approval."""
 
@@ -852,6 +972,40 @@ class PublicVendorDetailTests(APITestCase):
         self.assertEqual(response.data["selling_since_year"], 2015)
         self.assertTrue(response.data["also_buying"])
         self.assertEqual(response.data["payment_methods"], ["cash", "venmo"])
+
+    def test_admin_tier_is_null_for_anonymous_visitor(self):
+        self.vendor.vendor_tier = User.VendorTier.PREMIUM
+        self.vendor.save()
+        response = self.client.get(f"/api/v1/vendors/{self.vendor.pk}/")
+        self.assertIsNone(response.data["admin_tier"])
+
+    def test_admin_tier_is_null_for_a_logged_in_customer(self):
+        self.vendor.vendor_tier = User.VendorTier.PREMIUM
+        self.vendor.save()
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "public-cust@example.com", "password": "s3cret!23"},
+        )
+        response = self.client.get(
+            f"/api/v1/vendors/{self.vendor.pk}/",
+            HTTP_AUTHORIZATION=f"Bearer {login.data['access']}",
+        )
+        self.assertIsNone(response.data["admin_tier"])
+
+    def test_admin_tier_is_visible_to_an_admin(self):
+        self.vendor.vendor_tier = User.VendorTier.PREMIUM
+        self.vendor.save()
+        admin = User.objects.create_superuser(
+            email="tier-viewer-admin@example.com", password="s3cret!23"
+        )
+        login = self.client.post(
+            "/api/v1/auth/login/", {"email": admin.email, "password": "s3cret!23"}
+        )
+        response = self.client.get(
+            f"/api/v1/vendors/{self.vendor.pk}/",
+            HTTP_AUTHORIZATION=f"Bearer {login.data['access']}",
+        )
+        self.assertEqual(response.data["admin_tier"], User.VendorTier.PREMIUM)
 
 
 class PublicVendorListTests(APITestCase):

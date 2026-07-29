@@ -32,9 +32,21 @@ function bookingBadge(registration: VendorBoothRegistration): BookingBadge | nul
   return null;
 }
 
+type ShowTab = "requested" | "accepted" | "completed";
+
+const SHOW_TABS: { key: ShowTab; label: string; badge: BookingBadge }[] = [
+  { key: "requested", label: "Booth Requests", badge: "Requested" },
+  { key: "accepted", label: "Accepted", badge: "Accepted" },
+  { key: "completed", label: "Completed", badge: "Completed" },
+];
+
 function MyShowsSection() {
   const [registrations, setRegistrations] = useState<VendorBoothRegistration[]>([]);
   const [loading, setLoading] = useState(true);
+  // Defaults to "requested" — a vendor's most actionable/time-sensitive
+  // registrations (awaiting an admin decision) — rather than surfacing
+  // everything at once.
+  const [activeTab, setActiveTab] = useState<ShowTab>("requested");
 
   useEffect(() => {
     let cancelled = false;
@@ -61,13 +73,33 @@ function MyShowsSection() {
     .filter((row): row is { registration: VendorBoothRegistration; badge: BookingBadge } =>
       row.badge !== null,
     );
-  const upcoming = bookings
-    .filter((row) => row.registration.event_status === "upcoming")
-    .sort((a, b) => a.registration.event_start_date.localeCompare(b.registration.event_start_date));
-  const completed = bookings
-    .filter((row) => row.registration.event_status === "past")
-    .sort((a, b) => b.registration.event_start_date.localeCompare(a.registration.event_start_date));
-  const ordered = [...upcoming, ...completed];
+
+  const tabButtonClass = (tab: ShowTab) =>
+    `rounded-full px-4 py-2 text-sm font-medium transition ${
+      activeTab === tab
+        ? "bg-brand-blue text-white shadow-sm"
+        : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+    }`;
+
+  const rowsByTab = Object.fromEntries(
+    SHOW_TABS.map(({ key, badge }) => [
+      key,
+      bookings
+        .filter((row) => row.badge === badge)
+        .sort((a, b) =>
+          key === "completed"
+            ? b.registration.event_start_date.localeCompare(a.registration.event_start_date)
+            : a.registration.event_start_date.localeCompare(b.registration.event_start_date),
+        ),
+    ]),
+  ) as Record<ShowTab, typeof bookings>;
+
+  const activeRows = rowsByTab[activeTab];
+  const emptyMessage: Record<ShowTab, string> = {
+    requested: "You don't have any pending booth requests.",
+    accepted: "No accepted booths yet — once an organizer confirms a request, it'll show up here.",
+    completed: "No completed shows yet.",
+  };
 
   return (
     <div className="mb-8">
@@ -75,41 +107,58 @@ function MyShowsSection() {
 
       {loading ? (
         <Spinner />
-      ) : ordered.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-          You haven&apos;t requested a booth at any show yet.
-        </p>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {ordered.map(({ registration, badge }) => (
-            <Link
-              key={registration.id}
-              href={`/events/${registration.event}`}
-              className="group rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-gray-800 dark:bg-gray-900"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <p className="font-semibold group-hover:underline">{registration.event_name}</p>
-                <span
-                  className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${BOOKING_BADGE_STYLES[badge]}`}
+        <>
+          <div className="mb-4 flex flex-wrap gap-2 border-b border-gray-200 pb-3 dark:border-gray-800">
+            {SHOW_TABS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveTab(key)}
+                className={tabButtonClass(key)}
+              >
+                {label} ({rowsByTab[key].length})
+              </button>
+            ))}
+          </div>
+
+          {activeRows.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              {emptyMessage[activeTab]}
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {activeRows.map(({ registration, badge }) => (
+                <Link
+                  key={registration.id}
+                  href={`/events/${registration.event}`}
+                  className="group rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-gray-800 dark:bg-gray-900"
                 >
-                  {badge}
-                </span>
-              </div>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                {formatEventDateRange({
-                  start_date: registration.event_start_date,
-                  end_date: registration.event_end_date,
-                })}
-              </p>
-              <p className="text-sm text-gray-600 dark:text-gray-300">
-                {registration.event_venue}, {registration.event_city}
-              </p>
-              <p className="mt-1 text-xs text-gray-400">
-                Booth {registration.booth_number} · ${registration.price}
-              </p>
-            </Link>
-          ))}
-        </div>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-semibold group-hover:underline">{registration.event_name}</p>
+                    <span
+                      className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${BOOKING_BADGE_STYLES[badge]}`}
+                    >
+                      {badge}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    {formatEventDateRange({
+                      start_date: registration.event_start_date,
+                      end_date: registration.event_end_date,
+                    })}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    {registration.event_venue}, {registration.event_city}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-400">
+                    Booth {registration.booth_number} · ${registration.price}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
