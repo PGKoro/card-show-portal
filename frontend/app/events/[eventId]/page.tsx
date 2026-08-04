@@ -11,7 +11,7 @@ import { FloorMapCanvas } from "@/components/FloorMapCanvas";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { getAccessToken } from "@/lib/auth";
-import { formatEventDateRange, getEventImage, type ShowEvent } from "@/lib/events";
+import { formatEventAddress, formatEventDateRange, getEventImage, type ShowEvent } from "@/lib/events";
 import type { EventMap } from "@/lib/floorMap";
 
 export default function EventDetailPage() {
@@ -72,15 +72,6 @@ export default function EventDetailPage() {
     );
   }
 
-  const stats = [
-    { label: "Vendors", value: event.vendor_count.toLocaleString() },
-    { label: "Estimated cards", value: event.estimated_cards.toLocaleString() },
-    {
-      label: event.status === "upcoming" ? "Projected attendees" : "Attendees",
-      value: event.estimated_attendees.toLocaleString(),
-    },
-  ];
-
   const canSelectBooth =
     !event.has_started &&
     event.map_visible_to_vendors &&
@@ -127,9 +118,13 @@ export default function EventDetailPage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">{event.name}</h1>
             <p className="mt-1 text-gray-500 dark:text-gray-400">
-              {event.venue}, {event.city}
+              {event.venue}
+              {formatEventAddress(event) ? `, ${formatEventAddress(event)}` : ""}
             </p>
             <p className="text-gray-500 dark:text-gray-400">{formatEventDateRange(event)}</p>
+            <p className="text-gray-500 dark:text-gray-400">
+              {event.vendor_count.toLocaleString()} vendor{event.vendor_count === 1 ? "" : "s"} attending
+            </p>
           </div>
           <span
             className={`whitespace-nowrap rounded-full px-3 py-1 text-sm font-medium ${
@@ -165,18 +160,6 @@ export default function EventDetailPage() {
             ))}
           </div>
         )}
-
-        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {stats.map((stat) => (
-            <div
-              key={stat.label}
-              className="rounded-lg border border-gray-200 bg-white p-5 text-center shadow-sm dark:border-gray-800"
-            >
-              <p className="text-2xl font-bold text-brand-navy">{stat.value}</p>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
-            </div>
-          ))}
-        </div>
 
         {canSelectBooth && (
           <div className="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-brand-blue/30 bg-brand-blue/5 p-5">

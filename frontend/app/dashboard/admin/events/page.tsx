@@ -8,7 +8,7 @@ import { Pagination } from "@/components/Pagination";
 import { Spinner } from "@/components/Spinner";
 import { ApiError, getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
-import { formatEventDateRange, type ShowEvent } from "@/lib/events";
+import { formatEventAddress, formatEventDateRange, type ShowEvent } from "@/lib/events";
 
 const PAGE_SIZE = 5;
 type EventTab = "upcoming" | "completed" | "archived";
@@ -280,11 +280,11 @@ export default function AdminEventsPage() {
                     )}
                   </div>
                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    {event.venue}, {event.city} · {formatEventDateRange(event)}
+                    {event.venue}
+                    {formatEventAddress(event) ? ` — ${formatEventAddress(event)}` : ""} ·{" "}
+                    {formatEventDateRange(event)}
                   </p>
-                  <p className="mt-1 text-xs text-gray-400">
-                    {event.vendor_count} vendors · {event.estimated_cards.toLocaleString()} estimated cards · {event.estimated_attendees.toLocaleString()} estimated attendees
-                  </p>
+                  <p className="mt-1 text-xs text-gray-400">{event.vendor_count} vendors</p>
                   {event.notes && event.notes.trim() && (
                     <p className="mt-2 max-w-xl rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-100">
                       {event.notes}

@@ -16,6 +16,18 @@ import { GRADE_VALUES, GRADING_LABELS, type GradingCompany, type InventoryItem }
 
 const GRADINGS = Object.keys(GRADING_LABELS) as GradingCompany[];
 
+function formatRegistrationAddress(registration: VendorBoothRegistration): string {
+  const parts = [registration.event_address_line1].filter(Boolean);
+  const cityStateZip = [
+    registration.event_city,
+    [registration.event_state, registration.event_zip_code].filter(Boolean).join(" "),
+  ]
+    .filter(Boolean)
+    .join(", ");
+  if (cityStateZip) parts.push(cityStateZip);
+  return parts.join(", ");
+}
+
 type BookingBadge = "Requested" | "Accepted" | "Completed";
 
 const BOOKING_BADGE_STYLES: Record<BookingBadge, string> = {
@@ -149,7 +161,10 @@ function MyShowsSection() {
                     })}
                   </p>
                   <p className="text-sm text-gray-600 dark:text-gray-300">
-                    {registration.event_venue}, {registration.event_city}
+                    {registration.event_venue}
+                    {formatRegistrationAddress(registration)
+                      ? `, ${formatRegistrationAddress(registration)}`
+                      : ""}
                   </p>
                   <p className="mt-1 text-xs text-gray-400">
                     Booth {registration.booth_number} · ${registration.price}

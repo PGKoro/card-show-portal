@@ -8,7 +8,7 @@ import { Pagination } from "@/components/Pagination";
 import { Spinner } from "@/components/Spinner";
 import { ApiError, apiFetch, getApiErrorMessage, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
-import type { Venue } from "@/lib/floorMap";
+import { formatVenueAddress, type Venue } from "@/lib/floorMap";
 
 const PAGE_SIZE = 10;
 type VenueTab = "active" | "archived";
@@ -231,7 +231,7 @@ export default function AdminVenuesPage() {
                 <div>
                   <p className="font-medium">{venue.name}</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {venue.city || "No city set"}
+                    {formatVenueAddress(venue) || "No address set"}
                   </p>
                 </div>
 

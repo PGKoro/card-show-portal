@@ -3,6 +3,7 @@ import datetime
 from django.conf import settings
 from django.db import models
 
+from apps.core.constants import US_STATE_CHOICES
 from apps.core.models import Category
 
 # Generic layout diagrams an admin can fall back to when a venue can't
@@ -30,7 +31,11 @@ class Venue(models.Model):
     """
 
     name = models.CharField(max_length=200)
+    address_line1 = models.CharField(max_length=200, blank=True)
+    address_line2 = models.CharField(max_length=200, blank=True)
     city = models.CharField(max_length=200, blank=True)
+    state = models.CharField(max_length=2, blank=True, choices=US_STATE_CHOICES)
+    zip_code = models.CharField(max_length=10, blank=True)
 
     map_image = models.ImageField(upload_to="venue_maps/", null=True, blank=True)
     map_image_preset = models.CharField(
@@ -161,23 +166,23 @@ class Event(models.Model):
 
     name = models.CharField(max_length=200)
     venue = models.CharField(max_length=200)
+    address_line1 = models.CharField(max_length=200, blank=True)
+    address_line2 = models.CharField(max_length=200, blank=True)
     city = models.CharField(max_length=200)
+    state = models.CharField(max_length=2, blank=True, choices=US_STATE_CHOICES)
+    zip_code = models.CharField(max_length=10, blank=True)
     description = models.TextField(blank=True)
     start_date = models.DateField()
     # Optional — a single-day event can leave this blank.
     end_date = models.DateField(null=True, blank=True)
 
-    # Real vendor accounts attached to the event. estimated_cards/attendees
-    # below are manually-entered admin estimates, not derived from anything,
-    # since we have no real way to measure those yet.
+    # Real vendor accounts attached to the event.
     vendors = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         blank=True,
         related_name="events_attending",
         limit_choices_to={"role": "vendor"},
     )
-    estimated_cards = models.PositiveIntegerField(default=0)
-    estimated_attendees = models.PositiveIntegerField(default=0)
     archived = models.BooleanField(default=False)
     # Public announcement shown on the event page for things like "no bags"
     # or other show-day notices.

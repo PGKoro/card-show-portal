@@ -15,12 +15,30 @@
 export type Venue = {
   id: number;
   name: string;
+  address_line1: string;
+  address_line2: string;
   city: string;
+  state: string;
+  zip_code: string;
   archived: boolean;
   booth_count: number;
   created_at: string;
   updated_at: string;
 };
+
+/** Formats a Venue's address into a single display line, e.g. "123 Main St,
+ * Springfield, CA 90210". Falls back to just city when the street address
+ * isn't set (older venues created before address fields existed). */
+export function formatVenueAddress(
+  venue: Pick<Venue, "address_line1" | "address_line2" | "city" | "state" | "zip_code">,
+): string {
+  const parts = [venue.address_line1, venue.address_line2].filter(Boolean);
+  const cityStateZip = [venue.city, [venue.state, venue.zip_code].filter(Boolean).join(" ")]
+    .filter(Boolean)
+    .join(", ");
+  if (cityStateZip) parts.push(cityStateZip);
+  return parts.join(", ");
+}
 
 /** A physical booth slot on a Venue's floor plan — position/size/price. */
 export type VenueBooth = {
@@ -144,7 +162,10 @@ export type VendorBoothRegistration = {
   event_start_date: string;
   event_end_date: string | null;
   event_venue: string;
+  event_address_line1: string;
   event_city: string;
+  event_state: string;
+  event_zip_code: string;
   booth: number;
   booth_number: string;
   status: RegistrationStatus;

@@ -17,15 +17,17 @@ export type ShowEvent = {
   id: number;
   name: string;
   venue: string;
+  address_line1: string;
+  address_line2: string;
   city: string;
+  state: string;
+  zip_code: string;
   description: string;
   start_date: string;
   end_date: string | null;
   vendors: number[];
   vendors_detail: VendorDetail[];
   vendor_count: number;
-  estimated_cards: number;
-  estimated_attendees: number;
   status: EventStatus;
   /** True once start_date has been reached — distinct from `status`,
    * which only flips to "past" once a multi-day event has fully ended.
@@ -94,4 +96,19 @@ export function formatEventDateRange(event: Pick<ShowEvent, "start_date" | "end_
   }
 
   return `${formatDate(event.start_date)} - ${formatDate(event.end_date)}`;
+}
+
+/** Formats an event's synced venue address (see Venue/_sync_venue_fields on
+ * the backend) into a single display line, e.g. "123 Main St, Springfield,
+ * CA 90210". Falls back to just city when the street address isn't set
+ * (older venues created before address fields existed). */
+export function formatEventAddress(
+  event: Pick<ShowEvent, "address_line1" | "address_line2" | "city" | "state" | "zip_code">,
+): string {
+  const parts = [event.address_line1, event.address_line2].filter(Boolean);
+  const cityStateZip = [event.city, [event.state, event.zip_code].filter(Boolean).join(" ")]
+    .filter(Boolean)
+    .join(", ");
+  if (cityStateZip) parts.push(cityStateZip);
+  return parts.join(", ");
 }
