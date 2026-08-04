@@ -41,15 +41,17 @@ class EventSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "venue",
+            "address_line1",
+            "address_line2",
             "city",
+            "state",
+            "zip_code",
             "description",
             "start_date",
             "end_date",
             "vendors",
             "vendors_detail",
             "vendor_count",
-            "estimated_cards",
-            "estimated_attendees",
             "status",
             "has_started",
             "archived",
@@ -68,11 +70,12 @@ class EventSerializer(serializers.ModelSerializer):
             "registration_deadline",
             "vendor_registration_status",
         )
-        # venue/city are copied from map_venue (see _sync_venue_fields)
-        # rather than typed in directly — kept as their own fields since
-        # search (?search=) and every event-display consumer read them
-        # straight off the event rather than through map_venue_detail.
-        read_only_fields = ("venue", "city")
+        # venue/address_line1/address_line2/city/state/zip_code are copied
+        # from map_venue (see _sync_venue_fields) rather than typed in
+        # directly — kept as their own fields since search (?search=) and
+        # every event-display consumer read them straight off the event
+        # rather than through map_venue_detail.
+        read_only_fields = ("venue", "address_line1", "address_line2", "city", "state", "zip_code")
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -129,7 +132,11 @@ class EventSerializer(serializers.ModelSerializer):
         map_venue = validated_data.get("map_venue")
         if map_venue is not None:
             validated_data["venue"] = map_venue.name
+            validated_data["address_line1"] = map_venue.address_line1
+            validated_data["address_line2"] = map_venue.address_line2
             validated_data["city"] = map_venue.city
+            validated_data["state"] = map_venue.state
+            validated_data["zip_code"] = map_venue.zip_code
 
     def create(self, validated_data):
         self._sync_venue_fields(validated_data)
@@ -152,7 +159,19 @@ class VenueSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Venue
-        fields = ("id", "name", "city", "archived", "booth_count", "created_at", "updated_at")
+        fields = (
+            "id",
+            "name",
+            "address_line1",
+            "address_line2",
+            "city",
+            "state",
+            "zip_code",
+            "archived",
+            "booth_count",
+            "created_at",
+            "updated_at",
+        )
         read_only_fields = ("id", "created_at", "updated_at")
 
     def get_booth_count(self, obj):
@@ -497,7 +516,10 @@ class VendorBoothRegistrationSerializer(serializers.ModelSerializer):
     event_start_date = serializers.DateField(source="event.start_date", read_only=True)
     event_end_date = serializers.DateField(source="event.end_date", read_only=True)
     event_venue = serializers.CharField(source="event.venue", read_only=True)
+    event_address_line1 = serializers.CharField(source="event.address_line1", read_only=True)
     event_city = serializers.CharField(source="event.city", read_only=True)
+    event_state = serializers.CharField(source="event.state", read_only=True)
+    event_zip_code = serializers.CharField(source="event.zip_code", read_only=True)
     booth_number = serializers.CharField(source="booth.booth_number", read_only=True)
 
     class Meta:
@@ -510,7 +532,10 @@ class VendorBoothRegistrationSerializer(serializers.ModelSerializer):
             "event_start_date",
             "event_end_date",
             "event_venue",
+            "event_address_line1",
             "event_city",
+            "event_state",
+            "event_zip_code",
             "booth",
             "booth_number",
             "status",

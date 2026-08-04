@@ -181,7 +181,15 @@ export default function EditEventPage() {
         <Link href="/dashboard/admin/events" className="mb-4 inline-block text-sm font-medium text-brand-blue hover:underline">
           ← Manage Events
         </Link>
-        <h1 className="mb-6 text-2xl font-semibold">Edit Event</h1>
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold">Edit Event</h1>
+          <Link
+            href={`/dashboard/admin/events/${event.id}/vendors`}
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+          >
+            View attending vendors ({event.vendor_count})
+          </Link>
+        </div>
         <EventForm
           submitLabel="Save changes"
           initialValues={{
@@ -189,9 +197,6 @@ export default function EditEventPage() {
             description: event.description,
             start_date: event.start_date,
             end_date: event.end_date,
-            estimated_cards: event.estimated_cards,
-            estimated_attendees: event.estimated_attendees,
-            vendors_detail: event.vendors_detail,
             map_venue: event.map_venue,
             map_venue_detail: event.map_venue_detail,
             announcement: event.announcement ?? "",

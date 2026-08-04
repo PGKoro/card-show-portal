@@ -17,8 +17,8 @@ class VenueSectionInline(admin.TabularInline):
 
 @admin.register(Venue)
 class VenueAdmin(admin.ModelAdmin):
-    list_display = ("name", "city", "created_at")
-    search_fields = ("name", "city")
+    list_display = ("name", "address_line1", "city", "state", "zip_code", "created_at")
+    search_fields = ("name", "address_line1", "city", "zip_code")
     inlines = [BoothInline, VenueSectionInline]
 
 
@@ -43,7 +43,6 @@ class EventAdmin(admin.ModelAdmin):
         "city",
         "start_date",
         "end_date",
-        "estimated_attendees",
         "map_venue",
         "map_visible",
         "map_visible_to_vendors",

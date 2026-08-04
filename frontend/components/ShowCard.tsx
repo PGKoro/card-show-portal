@@ -4,7 +4,7 @@ import Link from "next/link";
 
 import { CountdownTimer } from "@/components/CountdownTimer";
 import { useAuth } from "@/lib/AuthContext";
-import { formatEventDateRange, type ShowEvent } from "@/lib/events";
+import { formatEventAddress, formatEventDateRange, type ShowEvent } from "@/lib/events";
 
 export function ShowCard({ show }: { show: ShowEvent }) {
   const { user } = useAuth();
@@ -38,12 +38,11 @@ export function ShowCard({ show }: { show: ShowEvent }) {
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400">{formatEventDateRange(show)}</p>
         <p className="text-sm text-gray-600 dark:text-gray-300">
-          {show.venue}, {show.city}
+          {show.venue}
+          {formatEventAddress(show) ? `, ${formatEventAddress(show)}` : ""}
         </p>
         <p className="mt-1 text-xs text-gray-400">
-          {show.status === "upcoming"
-            ? `${show.vendor_count} vendors booked`
-            : `${show.vendor_count} vendors · ~${show.estimated_attendees.toLocaleString()} attendees`}
+          {show.status === "upcoming" ? `${show.vendor_count} vendors booked` : `${show.vendor_count} vendors`}
         </p>
         {show.status === "upcoming" && (
           <CountdownTimer
