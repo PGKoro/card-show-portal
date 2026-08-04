@@ -1486,10 +1486,14 @@ export default function VenueMapEditorPage() {
         )}
 
         {displayImageUrl && (
+          // min-w keeps booth/section/amenity markers from crowding into an
+          // unreadable mess on narrow screens — overflow-x-auto lets the
+          // editor scroll horizontally there instead of squeezing to fit.
+          <div className="overflow-x-auto">
           <div
             ref={containerRef}
             onMouseDown={onContainerMouseDown}
-            className="relative mt-4 w-full cursor-crosshair select-none overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800"
+            className="relative mt-4 w-full min-w-[560px] cursor-crosshair select-none overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -1641,6 +1645,7 @@ export default function VenueMapEditorPage() {
                 }}
               />
             )}
+          </div>
           </div>
         )}
 

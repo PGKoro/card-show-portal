@@ -74,13 +74,8 @@ export function Footer() {
           <NewsletterSignup />
         </div>
 
-        <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-gray-800 pt-6 text-xs text-gray-500">
+        <div className="mt-10 border-t border-gray-800 pt-6 text-xs text-gray-500">
           <p>&copy; 2026 Collectors Village. All rights reserved.</p>
-          <div className="flex items-center gap-2">
-            <span>Powered by</span>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/perfect-game-white.png" alt="Perfect Game" className="h-5 w-auto" />
-          </div>
         </div>
       </div>
     </footer>

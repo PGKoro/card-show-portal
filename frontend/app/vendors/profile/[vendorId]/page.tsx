@@ -11,6 +11,7 @@ import { ShowCard } from "@/components/ShowCard";
 import { SocialLinks } from "@/components/SocialLinks";
 import { Spinner } from "@/components/Spinner";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 import { getAccessToken } from "@/lib/auth";
 import { useCategories } from "@/lib/CategoriesContext";
 import type { ShowEvent } from "@/lib/events";
@@ -38,6 +39,13 @@ type PublicVendor = {
   also_buying: boolean;
   payment_methods: string[];
   date_joined: string;
+  admin_tier: string | null;
+};
+
+const TIER_LABELS: Record<string, string> = {
+  premium: "Premium",
+  standard: "Standard",
+  basic: "Basic",
 };
 
 type Listing = {
@@ -67,6 +75,7 @@ function toInventoryItem(listing: Listing): InventoryItem {
 
 export default function PublicVendorProfilePage() {
   const { vendorId } = useParams<{ vendorId: string }>();
+  const { user } = useAuth();
   const { labelFor } = useCategories();
   const [vendor, setVendor] = useState<PublicVendor | null>(null);
   const [listings, setListings] = useState<Listing[]>([]);
@@ -78,7 +87,7 @@ export default function PublicVendorProfilePage() {
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      apiFetch<PublicVendor>(`/vendors/${vendorId}/`),
+      apiFetch<PublicVendor>(`/vendors/${vendorId}/`, { accessToken: getAccessToken() ?? undefined }),
       CARDS_FEATURE_ENABLED
         ? apiFetch<PaginatedResponse<Listing>>(`/vendors/${vendorId}/listings/?page_size=100`)
         : Promise.resolve({ count: 0, next: null, previous: null, results: [] } as PaginatedResponse<Listing>),
@@ -193,7 +202,14 @@ export default function PublicVendorProfilePage() {
           </div>
 
           <div className="min-w-0 flex-1 pb-1">
-            <h1 className="text-3xl font-bold tracking-tight">{vendor.business_name}</h1>
+            <h1 className="text-3xl font-bold tracking-tight">
+              {vendor.business_name}
+              {user?.role === "admin" && vendor.admin_tier && (
+                <span className="ml-2 align-middle rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                  Admin view: {TIER_LABELS[vendor.admin_tier] ?? vendor.admin_tier}
+                </span>
+              )}
+            </h1>
             {vendor.tagline && (
               <p className="mt-0.5 text-gray-600 italic dark:text-gray-300">{vendor.tagline}</p>
             )}

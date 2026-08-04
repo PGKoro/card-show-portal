@@ -68,6 +68,12 @@ const ADMIN_SECTIONS: { title: string; tools: AdminTool[] }[] = [
         description: "Create a customer or vendor account directly.",
         countKey: null,
       },
+      {
+        href: "/dashboard/admin/vendor-tiers",
+        title: "Vendor Tiers",
+        description: "Assign vendors to Premium, Standard, or Basic.",
+        countKey: null,
+      },
     ],
   },
   {

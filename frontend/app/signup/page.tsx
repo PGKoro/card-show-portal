@@ -44,11 +44,6 @@ export default function SignupPage() {
         <Link href="/" className="text-2xl font-bold tracking-tight text-brand-navy">
           Collectors Village
         </Link>
-        <div className="flex items-center gap-1.5 text-xs text-gray-500">
-          <span>Powered by</span>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/perfect-game-navy.png" alt="Perfect Game" className="h-4 w-auto" />
-        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
