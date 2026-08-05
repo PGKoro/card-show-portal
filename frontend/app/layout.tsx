@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ArchivedAccountGuard } from "@/components/ArchivedAccountGuard";
 import { ConfirmDialogProvider } from "@/components/ConfirmDialogProvider";
 import { Footer } from "@/components/Footer";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { NavBar } from "@/components/NavBar";
 import { AuthProvider } from "@/lib/AuthContext";
 import { CategoriesProvider } from "@/lib/CategoriesContext";
@@ -39,6 +40,7 @@ export default function RootLayout({
         <AuthProvider>
           <CategoriesProvider>
             <ConfirmDialogProvider>
+              <ImpersonationBanner />
               <NavBar />
               <ArchivedAccountGuard>{children}</ArchivedAccountGuard>
               <Footer />

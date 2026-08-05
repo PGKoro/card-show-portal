@@ -1,21 +1,180 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { AuthPageSpinner } from "@/components/AuthPageSpinner";
+import { Pagination } from "@/components/Pagination";
 import { apiFetch, getApiErrorMessage } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
 import { toDatetimeLocalValue, type ShowEvent } from "@/lib/events";
 import { EventForm, type EventFormPayload } from "../EventForm";
 
+type NoteLogEntry = {
+  id: number;
+  event: number;
+  admin: string | null;
+  note: string;
+  created_at: string;
+};
+
+type PaginatedNoteResponse = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: NoteLogEntry[];
+};
+
+function EventNotePanel({ eventId }: { eventId: number }) {
+  const [draftNote, setDraftNote] = useState("");
+  const [noteHistory, setNoteHistory] = useState<NoteLogEntry[]>([]);
+  const [noteTotal, setNoteTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
+  const [hasPrevious, setHasPrevious] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  async function loadHistory(nextPage = page) {
+    try {
+      const data = await apiFetch<PaginatedNoteResponse>(`/events/${eventId}/notes/history/?page=${nextPage}&page_size=5`, {
+        accessToken: getAccessToken() ?? undefined,
+      });
+      setNoteHistory(data.results);
+      setNoteTotal(data.count);
+      setHasNext(Boolean(data.next));
+      setHasPrevious(Boolean(data.previous));
+    } catch {
+      setNoteHistory([]);
+      setNoteTotal(0);
+      setHasNext(false);
+      setHasPrevious(false);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setLoading(true);
+    void loadHistory();
+  }, [eventId, page]);
+
+  async function postNote(event: FormEvent) {
+    event.preventDefault();
+    if (!draftNote.trim()) return;
+    setSubmitting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await apiFetch(`/events/${eventId}/notes/history/`, {
+        method: "POST",
+        accessToken: getAccessToken() ?? undefined,
+        body: { note: draftNote.trim() },
+      });
+      setDraftNote("");
+      setPage(1);
+      await loadHistory(1);
+      setSuccess("Note saved.");
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Could not save event note."));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function deleteNote(noteId: number) {
+    setDeletingId(noteId);
+    setError(null);
+    setSuccess(null);
+    try {
+      await apiFetch(`/events/${eventId}/notes/${noteId}/`, {
+        method: "DELETE",
+        accessToken: getAccessToken() ?? undefined,
+      });
+      setPage(1);
+      await loadHistory(1);
+      setSuccess("Note deleted.");
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Could not delete event note."));
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Admin notes</h2>
+        <span className="text-xs text-gray-400">{noteTotal} total</span>
+      </div>
+
+      <form onSubmit={postNote} className="mt-3 space-y-3">
+        <textarea
+          rows={4}
+          value={draftNote}
+          onChange={(e) => setDraftNote(e.target.value)}
+          placeholder="Write an internal admin note..."
+          className="w-full rounded-md border border-blue-300 px-3 py-2 dark:border-blue-700 dark:bg-transparent"
+        />
+        <button
+          type="submit"
+          disabled={submitting || !draftNote.trim()}
+          className="rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy disabled:opacity-50"
+        >
+          {submitting ? "Posting…" : "Post note"}
+        </button>
+      </form>
+
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      {success && <p className="mt-3 text-sm text-emerald-600">{success}</p>}
+
+      {loading ? (
+        <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Loading history…</p>
+      ) : noteHistory.length === 0 ? (
+        <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No notes posted yet.</p>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {noteHistory.map((entry) => (
+            <article key={entry.id} className="rounded-md border border-gray-200 p-3 dark:border-gray-800">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  <div className="font-medium text-gray-700 dark:text-gray-200">{entry.admin ?? "Unknown admin"}</div>
+                  <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => deleteNote(entry.id)}
+                  disabled={deletingId === entry.id}
+                  className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
+                >
+                  {deletingId === entry.id ? "Deleting…" : "Delete"}
+                </button>
+              </div>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{entry.note}</p>
+            </article>
+          ))}
+        </div>
+      )}
+
+      <Pagination
+        page={page}
+        hasNext={hasNext}
+        hasPrevious={hasPrevious}
+        onPrevious={() => setPage((current) => Math.max(1, current - 1))}
+        onNext={() => setPage((current) => current + 1)}
+      />
+    </section>
+  );
+}
+
 function FloorPlanPanel({ event, onEventUpdate }: { event: ShowEvent; onEventUpdate: (e: ShowEvent) => void }) {
   const [mapVisible, setMapVisible] = useState(event.map_visible);
   const [mapVisibleToVendors, setMapVisibleToVendors] = useState(event.map_visible_to_vendors);
-  const [loyaltyDeadline, setLoyaltyDeadline] = useState(
-    toDatetimeLocalValue(event.loyalty_priority_deadline),
-  );
+  const [loyaltyDeadline, setLoyaltyDeadline] = useState(toDatetimeLocalValue(event.loyalty_priority_deadline));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -47,11 +206,9 @@ function FloorPlanPanel({ event, onEventUpdate }: { event: ShowEvent; onEventUpd
   }
 
   return (
-    <div className="mt-8 rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-transparent">
+    <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-transparent">
       <h2 className="text-lg font-semibold">Floor Plan &amp; Booths</h2>
-      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-        Pick a floor plan venue above, then control who can see it here.
-      </p>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Pick a floor plan venue above, then control who can see it here.</p>
 
       {!hasVenue ? (
         <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
@@ -129,6 +286,7 @@ function FloorPlanPanel({ event, onEventUpdate }: { event: ShowEvent; onEventUpd
 }
 
 export default function EditEventPage() {
+  const router = useRouter();
   const params = useParams<{ eventId: string }>();
   const [event, setEvent] = useState<ShowEvent | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -160,9 +318,7 @@ export default function EditEventPage() {
     setEvent(updated);
   }
 
-  if (loading) {
-    return <AuthPageSpinner />;
-  }
+  if (loading) return <AuthPageSpinner />;
 
   if (notFound || !event) {
     return (
@@ -177,31 +333,58 @@ export default function EditEventPage() {
 
   return (
     <main className="flex-1 px-6 py-12">
-      <div className="mx-auto max-w-2xl">
+      <div className="mx-auto max-w-6xl">
         <Link href="/dashboard/admin/events" className="mb-4 inline-block text-sm font-medium text-brand-blue hover:underline">
           ← Manage Events
         </Link>
-        <h1 className="mb-6 text-2xl font-semibold">Edit Event</h1>
-        <EventForm
-          submitLabel="Save changes"
-          initialValues={{
-            name: event.name,
-            description: event.description,
-            start_date: event.start_date,
-            end_date: event.end_date,
-            estimated_cards: event.estimated_cards,
-            estimated_attendees: event.estimated_attendees,
-            vendors_detail: event.vendors_detail,
-            map_venue: event.map_venue,
-            map_venue_detail: event.map_venue_detail,
-            announcement: event.announcement ?? "",
-            notes: event.notes ?? "",
-            registration_deadline: event.registration_deadline,
-          }}
-          onSubmit={handleSubmit}
-        />
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold">Edit Event</h1>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const duplicated = await apiFetch<ShowEvent>(`/events/${event.id}/duplicate/`, {
+                  method: "POST",
+                  accessToken: getAccessToken() ?? undefined,
+                });
+                router.push(`/dashboard/admin/events/${duplicated.id}`);
+              } catch (err) {
+                alert(getApiErrorMessage(err, "Could not duplicate this event."));
+              }
+            }}
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+          >
+            Duplicate Event
+          </button>
+        </div>
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(420px,1fr)]">
+          <section>
+            <EventForm
+              submitLabel="Save changes"
+              initialValues={{
+                name: event.name,
+                description: event.description,
+                start_date: event.start_date,
+                end_date: event.end_date,
+                estimated_cards: event.estimated_cards,
+                estimated_attendees: event.estimated_attendees,
+                vendors_detail: event.vendors_detail,
+                map_venue: event.map_venue,
+                map_venue_detail: event.map_venue_detail,
+                announcement: event.announcement ?? "",
+                notes: event.notes ?? "",
+                registration_deadline: event.registration_deadline,
+              }}
+              showNotes={false}
+              onSubmit={handleSubmit}
+            />
+          </section>
 
-        <FloorPlanPanel event={event} onEventUpdate={setEvent} />
+          <aside className="space-y-4">
+            <EventNotePanel eventId={event.id} />
+            <FloorPlanPanel event={event} onEventUpdate={setEvent} />
+          </aside>
+        </div>
       </div>
     </main>
   );

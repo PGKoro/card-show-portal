@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, type MouseEvent } from "react";
 
 import { useConfirm } from "@/components/ConfirmDialogProvider";
@@ -39,10 +40,12 @@ const TAB_META: Record<EventTab, TabMeta> = {
 };
 
 export default function AdminEventsPage() {
+  const router = useRouter();
   const confirm = useConfirm();
   const [search, setSearch] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+
   const [activeTab, setActiveTab] = useState<EventTab>("upcoming");
   const [upcomingEvents, setUpcomingEvents] = useState<ShowEvent[]>([]);
   const [completedEvents, setCompletedEvents] = useState<ShowEvent[]>([]);
@@ -71,6 +74,22 @@ export default function AdminEventsPage() {
         ? completedHasPrevious
         : archivedHasPrevious;
   const tabMeta = TAB_META[activeTab];
+
+  async function handleDuplicate(event: ShowEvent, e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDeleteError(null);
+
+    try {
+      const duplicated = await apiFetch<ShowEvent>(`/events/${event.id}/duplicate/`, {
+        method: "POST",
+        accessToken: getAccessToken() ?? undefined,
+      });
+      router.push(`/dashboard/admin/events/${duplicated.id}`);
+    } catch (error) {
+      setDeleteError(getApiErrorMessage(error, `Could not duplicate \"${event.name}\".`));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +174,29 @@ export default function AdminEventsPage() {
       if (event.archived) setArchivedCount((current) => Math.max(0, current - 1));
     } catch (error) {
       setDeleteError(getApiErrorMessage(error, `Could not delete "${event.name}".`));
+    }
+  }
+
+  async function handleArchive(event: ShowEvent, archived: boolean, e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDeleteError(null);
+    try {
+      await apiFetch(`/events/${event.id}/`, {
+        method: "PATCH",
+        accessToken: getAccessToken() ?? undefined,
+        body: { archived },
+      });
+      const updated = { ...event, archived };
+      setUpcomingEvents((current) => current.filter((item) => item.id !== event.id));
+      setCompletedEvents((current) => current.filter((item) => item.id !== event.id));
+      setArchivedEvents((current) => {
+        const filtered = current.filter((item) => item.id !== event.id);
+        return archived ? [updated, ...filtered] : filtered;
+      });
+      setArchivedCount((current) => (archived ? current + 1 : Math.max(0, current - 1)));
+    } catch (error) {
+      setDeleteError(getApiErrorMessage(error, `Could not ${archived ? "archive" : "restore"} "${event.name}".`));
     }
   }
 
@@ -273,9 +315,9 @@ export default function AdminEventsPage() {
                     >
                       {event.archived ? "Archived" : activeTab === "upcoming" ? "Upcoming" : "Completed"}
                     </span>
-                    {event.notes && event.notes.trim() && (
-                      <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                        Note
+                    {event.note_count > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                        🗒 {event.note_count}
                       </span>
                     )}
                   </div>
@@ -285,68 +327,40 @@ export default function AdminEventsPage() {
                   <p className="mt-1 text-xs text-gray-400">
                     {event.vendor_count} vendors · {event.estimated_cards.toLocaleString()} estimated cards · {event.estimated_attendees.toLocaleString()} estimated attendees
                   </p>
-                  {event.notes && event.notes.trim() && (
-                    <p className="mt-2 max-w-xl rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-100">
-                      {event.notes}
-                    </p>
-                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      router.push(`/dashboard/admin/events/${event.id}`);
+                    }}
+                    className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-900"
+                  >
+                    Manage
+                  </button>
                   {activeTab !== "archived" && (
                     <button
                       type="button"
-                      onClick={async (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const accessToken = getAccessToken() ?? undefined;
-                        try {
-                          await apiFetch(`/events/${event.id}/`, {
-                            method: "PATCH",
-                            body: { archived: true },
-                            accessToken,
-                          });
-                          const archivedEvent = { ...event, archived: true };
-                          setUpcomingEvents((current) => current.filter((item) => item.id !== event.id));
-                          setCompletedEvents((current) => current.filter((item) => item.id !== event.id));
-                          setArchivedEvents((current) => [archivedEvent, ...current.filter((item) => item.id !== event.id)]);
-                          setArchivedCount((current) => current + 1);
-                        } catch (error) {
-                          console.error("Failed to archive event", error);
-                        }
-                      }}
+                      onClick={(e) => handleArchive(event, true, e)}
                       className="rounded-md border border-blue-600 bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-blue-700"
                     >
                       Archive
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={(e) => handleDuplicate(event, e)}
+                    className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200 dark:hover:bg-gray-900"
+                  >
+                    Duplicate
+                  </button>
                   {activeTab === "archived" && (
                     <button
                       type="button"
-                      onClick={async (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const accessToken = getAccessToken() ?? undefined;
-                        try {
-                          await apiFetch(`/events/${event.id}/`, {
-                            method: "PATCH",
-                            body: { archived: false },
-                            accessToken,
-                          });
-                          const restoredEvent = { ...event, archived: false };
-                          const referenceDate = event.end_date ?? event.start_date;
-                          const isCompleted = referenceDate ? new Date(referenceDate) < new Date() : event.status === "past";
-                          setArchivedEvents((current) => current.filter((item) => item.id !== event.id));
-                          setArchivedCount((current) => Math.max(0, current - 1));
-                          if (isCompleted) {
-                            setCompletedEvents((current) => [restoredEvent, ...current]);
-                          } else {
-                            setUpcomingEvents((current) => [restoredEvent, ...current]);
-                          }
-                        } catch (error) {
-                          console.error("Failed to restore event", error);
-                        }
-                      }}
+                      onClick={(e) => handleArchive(event, false, e)}
                       className="rounded-md border border-emerald-600 bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-emerald-700"
                     >
                       Restore
@@ -359,7 +373,6 @@ export default function AdminEventsPage() {
                   >
                     Delete
                   </button>
-                  <span className="text-sm text-gray-400">→</span>
                 </div>
               </Link>
             ))}

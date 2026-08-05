@@ -2,8 +2,18 @@
 
 from .base import *  # noqa: F401,F403
 
+import sys
+
 DEBUG = True
 ALLOWED_HOSTS = ["*"]
+
+if "test" in sys.argv:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "test.sqlite3",
+        }
+    }
 
 # Rate limiting (see base.py's REST_FRAMEWORK) protects the public production
 # deployment from credential stuffing / registration spam. It has no purpose

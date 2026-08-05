@@ -268,6 +268,40 @@ class EventApiTests(APITestCase):
         self.assertEqual(response.data["venue"], "Test Venue")
         self.assertEqual(response.data["city"], "Test City")
 
+    def test_admin_can_duplicate_event(self):
+        self.upcoming.vendors.add(self.vendor)
+        access = self.access_for("events-admin@example.com")
+        response = self.client.post(
+            f"/api/v1/events/{self.upcoming.pk}/duplicate/",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["name"].startswith("Copy of "))
+        self.assertEqual(response.data["announcement"], self.upcoming.announcement)
+        self.assertEqual(response.data["notes"], self.upcoming.notes)
+
+    def test_admin_can_view_event_note_history(self):
+        access = self.access_for("events-admin@example.com")
+        self.client.patch(
+            f"/api/v1/events/{self.upcoming.pk}/",
+            {"notes": "First event note"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.client.patch(
+            f"/api/v1/events/{self.upcoming.pk}/",
+            {"notes": "Second event note"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        history = self.client.get(
+            f"/api/v1/events/{self.upcoming.pk}/notes/history/",
+            HTTP_AUTHORIZATION=f"Bearer {access}",
+        )
+        self.assertEqual(history.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(history.data), 1)
+        self.assertEqual(history.data[0]["new_text"], "Second event note")
+
     def test_create_requires_a_map_venue(self):
         access = self.access_for("events-admin@example.com")
         response = self.client.post(

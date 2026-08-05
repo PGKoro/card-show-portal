@@ -11,7 +11,7 @@ from rest_framework import serializers
 
 from apps.core.models import Category
 
-from .models import User
+from .models import AdminNoteChange, User
 
 SOCIAL_LINK_FIELDS = ("instagram_url", "youtube_url", "x_url", "website_url")
 
@@ -135,6 +135,8 @@ class UserDetailsSerializer(serializers.ModelSerializer):
     them through /onboarding or show a "pending approval" state first.
     """
 
+    note_count = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = (
@@ -159,6 +161,7 @@ class UserDetailsSerializer(serializers.ModelSerializer):
             "archived",
             "flagged",
             "notes",
+            "note_count",
             "date_joined",
         ) + VENDOR_DETAIL_FIELDS
         read_only_fields = (
@@ -169,17 +172,128 @@ class UserDetailsSerializer(serializers.ModelSerializer):
             "archived",
             "flagged",
             "notes",
+            "note_count",
             "date_joined",
         )
 
+    def get_note_count(self, obj):
+        return AdminNoteChange.objects.filter(
+            target_type=AdminNoteChange.TARGET_USER,
+            target_id=obj.pk,
+        ).count()
+
+
+class AdminUserNoteCreateSerializer(serializers.Serializer):
+    note = serializers.CharField(allow_blank=False, trim_whitespace=True)
+
+    def validate_note(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Note can't be empty.")
+        return value
+
+
+class AdminNoteChangeSerializer(serializers.ModelSerializer):
+    author = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminNoteChange
+        fields = (
+            "id",
+            "target_type",
+            "target_id",
+            "author",
+            "old_text",
+            "new_text",
+            "created_at",
+        )
+
+    def get_author(self, obj):
+        if not obj.author:
+            return None
+        return getattr(obj.author, "get_full_name", lambda: "")() or obj.author.email
+
+
+class AdminAccountNoteLogSerializer(serializers.ModelSerializer):
+    account = serializers.SerializerMethodField()
+    admin = serializers.SerializerMethodField()
+    note = serializers.CharField(source="new_text")
+
+    class Meta:
+        model = AdminNoteChange
+        fields = (
+            "id",
+            "account",
+            "admin",
+            "note",
+            "created_at",
+        )
+
+    def get_account(self, obj):
+        if obj.target_type == AdminNoteChange.TARGET_USER:
+            user = User.objects.filter(pk=obj.target_id).first()
+            if user:
+                return getattr(user, "get_full_name", lambda: "")() or user.email
+        return None
+
+    def get_admin(self, obj):
+        if not obj.author:
+            return None
+        return getattr(obj.author, "get_full_name", lambda: "")() or obj.author.email
+
+
+class AdminGlobalNoteLogSerializer(serializers.ModelSerializer):
+    """
+    Flattened note-history row for the site-wide Admin Note History tool —
+    combines both user and event notes into one feed, each row carrying
+    which admin made the change, when, and what it was attached to.
+    """
+
+    admin = serializers.SerializerMethodField()
+    note = serializers.CharField(source="new_text")
+    target_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminNoteChange
+        fields = (
+            "id",
+            "target_type",
+            "target_id",
+            "target_label",
+            "admin",
+            "note",
+            "created_at",
+        )
+
+    def get_admin(self, obj):
+        if not obj.author:
+            return None
+        return getattr(obj.author, "get_full_name", lambda: "")() or obj.author.email
+
+    def get_target_label(self, obj):
+        if obj.target_type == AdminNoteChange.TARGET_USER:
+            user = User.objects.filter(pk=obj.target_id).first()
+            if user:
+                return getattr(user, "get_full_name", lambda: "")() or user.email
+            return "Deleted account"
+        if obj.target_type == AdminNoteChange.TARGET_EVENT:
+            from apps.events.models import Event  # local import avoids a circular import with apps.events
+
+            event = Event.objects.filter(pk=obj.target_id).first()
+            if event:
+                return event.name
+            return "Deleted event"
+        return None
+
 
 class AdminUserDetailSerializer(serializers.ModelSerializer):
-    """Admin-facing detail serializer with editable email and notes."""
+
 
     category_tags = serializers.ListField(child=serializers.CharField(), required=False)
     payment_methods = serializers.ListField(child=serializers.CharField(), required=False)
 
     class Meta:
+
         model = User
         fields = (
             "email",
@@ -226,6 +340,7 @@ class AdminUserDetailSerializer(serializers.ModelSerializer):
         return value
 
     def update(self, instance, validated_data):
+        old_notes = instance.notes
         for field in (
             "email",
             "notes",
@@ -251,6 +366,15 @@ class AdminUserDetailSerializer(serializers.ModelSerializer):
         if "payment_methods" in validated_data:
             instance.payment_methods = validated_data.pop("payment_methods")
         instance.save()
+        if old_notes != instance.notes:
+            request = self.context.get("request")
+            AdminNoteChange.objects.create(
+                target_type=AdminNoteChange.TARGET_USER,
+                target_id=instance.pk,
+                author=request.user if request else None,
+                old_text=old_notes,
+                new_text=instance.notes,
+            )
         return instance
 
 

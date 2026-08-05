@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
-
 import Link from "next/link";
+import { useEffect, useState, type FormEvent } from "react";
 
 import { getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
@@ -44,10 +43,12 @@ export function EventForm({
   initialValues,
   submitLabel,
   onSubmit,
+  showNotes = true,
 }: {
   initialValues?: EventFormInitialValues;
   submitLabel: string;
   onSubmit: (payload: EventFormPayload) => Promise<void>;
+  showNotes?: boolean;
 }) {
   const [name, setName] = useState(initialValues?.name ?? "");
   const [description, setDescription] = useState(initialValues?.description ?? "");
@@ -148,9 +149,7 @@ export function EventForm({
         map_venue: selectedVenue.pk,
         announcement,
         notes,
-        registration_deadline: registrationDeadline
-          ? new Date(registrationDeadline).toISOString()
-          : null,
+        registration_deadline: registrationDeadline ? new Date(registrationDeadline).toISOString() : null,
       });
     } catch (err) {
       setError(getApiErrorMessage(err, "Could not save event. Please try again."));
@@ -261,8 +260,7 @@ export function EventForm({
 
       <div>
         <label htmlFor="registration_deadline" className="block text-sm font-medium">
-          Vendor registration deadline{" "}
-          <span className="font-normal text-gray-400">(optional)</span>
+          Vendor registration deadline <span className="font-normal text-gray-400">(optional)</span>
         </label>
         <input
           id="registration_deadline"
@@ -304,19 +302,21 @@ export function EventForm({
         />
       </div>
 
-      <div>
-        <label htmlFor="notes" className="block text-sm font-medium text-brand-blue dark:text-blue-300">
-          Notes <span className="font-normal text-gray-400">(admin only)</span>
-        </label>
-        <textarea
-          id="notes"
-          rows={4}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Internal note for admins only..."
-          className="mt-1 w-full rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-blue-950 placeholder:text-blue-400 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-100"
-        />
-      </div>
+      {showNotes && (
+        <div>
+          <label htmlFor="notes" className="block text-sm font-medium text-brand-blue dark:text-blue-300">
+            Notes <span className="font-normal text-gray-400">(admin only)</span>
+          </label>
+          <textarea
+            id="notes"
+            rows={4}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Internal note for admins only..."
+            className="mt-1 w-full rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-blue-950 placeholder:text-blue-400 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-100"
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>

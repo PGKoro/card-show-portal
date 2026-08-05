@@ -232,3 +232,25 @@ class AdminUserDetailTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["email"], "updated-vendor@example.com")
         self.assertEqual(response.data["notes"], "Follow up in March")
+
+    def test_admin_note_changes_are_recorded(self):
+        self.client.patch(
+            f"/api/v1/admin/users/{self.vendor.pk}/",
+            {"notes": "First note"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
+        )
+        self.client.patch(
+            f"/api/v1/admin/users/{self.vendor.pk}/",
+            {"notes": "Updated note"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
+        )
+        history = self.client.get(
+            f"/api/v1/admin/users/{self.vendor.pk}/history/",
+            HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
+        )
+        self.assertEqual(history.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(history.data), 1)
+        self.assertEqual(history.data[0]["admin"], "admin4@example.com")
+        self.assertEqual(history.data[0]["note"], "Updated note")

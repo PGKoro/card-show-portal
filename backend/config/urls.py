@@ -11,7 +11,11 @@ from apps.core.views import (
 from apps.listings.views import PublicVendorListingsView
 from apps.users.views import (
     AdminCreateUserView,
+    AdminGlobalNoteHistoryView,
     AdminUserDetailView,
+    AdminUserImpersonateView,
+    AdminUserNoteDetailView,
+    AdminUserNoteHistoryView,
     AdminUserSearchView,
     ApproveVendorView,
     ArchiveUserView,
@@ -106,6 +110,11 @@ urlpatterns = [
     # restore/delete accounts directly).
     path("api/v1/admin/users/", AdminUserSearchView.as_view(), name="admin-user-search"),
     path(
+        "api/v1/admin/notes/history/",
+        AdminGlobalNoteHistoryView.as_view(),
+        name="admin-global-note-history",
+    ),
+    path(
         "api/v1/admin/users/create/",
         AdminCreateUserView.as_view(),
         name="admin-user-create",
@@ -122,6 +131,11 @@ urlpatterns = [
         name="archive-user",
     ),
     path(
+        "api/v1/admin/users/<int:pk>/restore/",
+        RestoreUserView.as_view(),
+        name="restore-user",
+    ),
+    path(
         "api/v1/admin/users/<int:pk>/flag/",
         FlagUserView.as_view(),
         name="flag-user",
@@ -132,11 +146,21 @@ urlpatterns = [
         name="unflag-user",
     ),
     path(
-        "api/v1/admin/users/<int:pk>/restore/",
-        RestoreUserView.as_view(),
-        name="restore-user",
+        "api/v1/admin/users/<int:pk>/history/",
+        AdminUserNoteHistoryView.as_view(),
+        name="admin-user-note-history",
     ),
-    # Public vendor directory — approved vendors only (backs /vendors and
+    path(
+        "api/v1/admin/users/<int:pk>/history/<int:note_id>/",
+        AdminUserNoteDetailView.as_view(),
+        name="admin-user-note-detail",
+    ),
+    path(
+        "api/v1/admin/users/<int:pk>/impersonate/",
+        AdminUserImpersonateView.as_view(),
+        name="admin-user-impersonate",
+    ),
+
     # the homepage's "Featured vendors").
     path("api/v1/vendors/", PublicVendorListView.as_view(), name="public-vendor-list"),
     # Public vendor profile (business info + their listings) — backs the

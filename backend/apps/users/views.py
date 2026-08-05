@@ -8,16 +8,22 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.core.permissions import IsAdminRole
 
-from .models import User
+from .models import AdminNoteChange, User
 from .serializers import (
+    AdminAccountNoteLogSerializer,
     AdminCreateUserSerializer,
+    AdminGlobalNoteLogSerializer,
+    AdminNoteChangeSerializer,
     AdminUserDetailSerializer,
+    AdminUserNoteCreateSerializer,
     OnboardingBasicSerializer,
     OnboardingDetailsSerializer,
     ProfileSerializer,
@@ -110,7 +116,7 @@ class RejectVendorView(VendorDecisionView):
 
 
 class AdminUserSearchView(generics.ListAPIView):
-    """GET /api/v1/admin/users/?search=&role=&flagged=1"""
+    """GET /api/v1/admin/users/?search=&role=&flagged=1&archived=1"""
 
     permission_classes = [IsAdminRole]
     serializer_class = UserDetailsSerializer
@@ -123,6 +129,11 @@ class AdminUserSearchView(generics.ListAPIView):
             queryset = queryset.filter(role=role)
         if self.request.query_params.get("flagged", "").strip().lower() in ("1", "true", "yes"):
             queryset = queryset.filter(flagged=True)
+        archived_param = self.request.query_params.get("archived", "").strip().lower()
+        if archived_param in ("1", "true", "yes"):
+            queryset = queryset.filter(archived=True)
+        elif archived_param in ("0", "false", "no"):
+            queryset = queryset.filter(archived=False)
         if search:
             queryset = queryset.filter(
                 Q(email__icontains=search)
@@ -157,16 +168,26 @@ class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
 class ArchiveUserView(APIView):
     permission_classes = [IsAdminRole]
 
-    def post(self, request, pk):
+    def patch(self, request, pk):
         user = get_object_or_404(User, pk=pk)
         if user.pk == request.user.pk:
             return Response(
                 {"detail": "You can't archive your own account."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        user.archived = True
+        archived = request.data.get("archived")
+        if archived is None:
+            archived = True
+        elif isinstance(archived, str):
+            archived = archived.strip().lower() in ("1", "true", "yes", "on")
+        else:
+            archived = bool(archived)
+        user.archived = archived
         user.save(update_fields=["archived"])
         return Response(UserDetailsSerializer(user).data)
+
+    def post(self, request, pk):
+        return self.patch(request, pk)
 
 
 class RestoreUserView(APIView):
@@ -238,6 +259,169 @@ class SetUserRoleView(APIView):
 
         user.save(update_fields=["role", "onboarding_completed", "vendor_status"])
         return Response(UserDetailsSerializer(user).data, status=status.HTTP_200_OK)
+
+
+class NoteHistoryPagination(PageNumberPagination):
+    page_size = 5
+    page_size_query_param = "page_size"
+    max_page_size = 50
+
+
+class GlobalNoteHistoryPagination(PageNumberPagination):
+    """20/page, matches what the site-wide Admin Note History tool expects."""
+
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+class AdminGlobalNoteHistoryView(APIView):
+    """
+    Read-only, site-wide feed of every note change (accounts + events),
+    newest first — backs the Admin Tools > Admin Note History page.
+
+    Supports optional query params:
+      - ``admin``: case-insensitive match against the author's name/email.
+      - ``type``: "user" or "event", matches AdminNoteChange.target_type.
+    """
+
+    permission_classes = [IsAdminRole]
+    pagination_class = GlobalNoteHistoryPagination
+
+    def get(self, request):
+        changes = AdminNoteChange.objects.select_related("author").order_by(
+            "-created_at", "-id"
+        )
+
+        admin_query = request.query_params.get("admin", "").strip()
+        if admin_query:
+            changes = changes.filter(
+                Q(author__first_name__icontains=admin_query)
+                | Q(author__last_name__icontains=admin_query)
+                | Q(author__email__icontains=admin_query)
+            )
+
+        type_query = request.query_params.get("type", "").strip().lower()
+        if type_query in (AdminNoteChange.TARGET_USER, AdminNoteChange.TARGET_EVENT):
+            changes = changes.filter(target_type=type_query)
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(changes, request, view=self)
+        return paginator.get_paginated_response(
+            AdminGlobalNoteLogSerializer(page, many=True).data
+        )
+
+
+class AdminUserNoteHistoryView(APIView):
+    permission_classes = [IsAdminRole]
+    pagination_class = NoteHistoryPagination
+
+    def _get_changes_queryset(self, pk):
+        return AdminNoteChange.objects.filter(
+            target_type=AdminNoteChange.TARGET_USER,
+            target_id=pk,
+        )
+
+    def _serialize_changes(self, changes):
+        return AdminAccountNoteLogSerializer(changes, many=True).data
+
+    def _get_paginated_response(self, request, pk):
+        paginator = self.pagination_class()
+        changes = self._get_changes_queryset(pk)
+        page = paginator.paginate_queryset(changes, request, view=self)
+        return paginator.get_paginated_response(self._serialize_changes(page))
+
+    def get(self, request, pk):
+        return self._get_paginated_response(request, pk)
+
+    def post(self, request, pk):
+        serializer = AdminUserNoteCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        note = serializer.validated_data["note"]
+        user = get_object_or_404(User, pk=pk)
+        previous = user.notes or ""
+        user.notes = note
+        user.save(update_fields=["notes"])
+        AdminNoteChange.objects.create(
+            target_type=AdminNoteChange.TARGET_USER,
+            target_id=user.pk,
+            author=request.user if request.user.is_authenticated else None,
+            old_text=previous,
+            new_text=note,
+        )
+        return self._get_paginated_response(request, pk)
+
+
+class AdminUserNoteDetailView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def delete(self, request, pk, note_id):
+        user = get_object_or_404(User, pk=pk)
+        note = get_object_or_404(
+            AdminNoteChange,
+            pk=note_id,
+            target_type=AdminNoteChange.TARGET_USER,
+            target_id=pk,
+        )
+        note.delete()
+        latest_note = (
+            AdminNoteChange.objects.filter(
+                target_type=AdminNoteChange.TARGET_USER,
+                target_id=pk,
+            )
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        user.notes = latest_note.new_text if latest_note else ""
+        user.save(update_fields=["notes"])
+        changes = AdminNoteChange.objects.filter(
+            target_type=AdminNoteChange.TARGET_USER,
+            target_id=pk,
+        )
+        return Response(AdminAccountNoteLogSerializer(changes, many=True).data)
+
+
+class AdminUserImpersonateView(APIView):
+    """
+    Issues a fresh JWT pair for the target user so an admin can view the
+    app exactly as that user sees it. Locked to admins only, blocks
+    impersonating another admin (avoids one admin silently acting as
+    another), and logs every use into AdminNoteChange so it shows up in
+    the site-wide Admin Note History feed for accountability.
+    """
+
+    permission_classes = [IsAdminRole]
+
+    def post(self, request, pk):
+        user = get_object_or_404(User, pk=pk)
+
+        if user.pk == request.user.pk:
+            return Response(
+                {"detail": "You can't impersonate your own account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if user.role == User.Role.ADMIN or user.is_superuser:
+            return Response(
+                {"detail": "Admin accounts can't be impersonated."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        refresh = RefreshToken.for_user(user)
+        AdminNoteChange.objects.create(
+            target_type=AdminNoteChange.TARGET_USER,
+            target_id=user.pk,
+            author=request.user if request.user.is_authenticated else None,
+            old_text="",
+            new_text=f"Started impersonating {user.email}.",
+        )
+        return Response(
+            {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": UserDetailsSerializer(user).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ThrottledLoginView(LoginView):

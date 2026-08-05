@@ -9,6 +9,9 @@
 
 const ACCESS_TOKEN_KEY = "showfloor.accessToken";
 const REFRESH_TOKEN_KEY = "showfloor.refreshToken";
+// Stashed away while impersonating a user, so "Exit impersonation" can put
+// the admin's own session back exactly as it was.
+const IMPERSONATOR_TOKENS_KEY = "showfloor.impersonator";
 
 export type AuthTokens = {
   access: string;
@@ -35,6 +38,37 @@ export function clearTokens(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+}
+
+/** Stashes the currently-logged-in admin's own tokens before swapping in
+ *  an impersonated user's tokens, so the switch back is a straight
+ *  restore rather than a re-login. */
+export function stashAdminTokens(): void {
+  if (typeof window === "undefined") return;
+  const access = getAccessToken();
+  const refresh = getRefreshToken();
+  if (!access || !refresh) return;
+  window.localStorage.setItem(IMPERSONATOR_TOKENS_KEY, JSON.stringify({ access, refresh }));
+}
+
+export function getStashedAdminTokens(): AuthTokens | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(IMPERSONATOR_TOKENS_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as AuthTokens;
+  } catch {
+    return null;
+  }
+}
+
+export function clearStashedAdminTokens(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(IMPERSONATOR_TOKENS_KEY);
+}
+
+export function isImpersonating(): boolean {
+  return getStashedAdminTokens() !== null;
 }
 
 export type UserRole = "vendor" | "customer" | "admin";

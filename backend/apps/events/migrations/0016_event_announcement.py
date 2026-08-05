@@ -6,20 +6,19 @@ class Migration(migrations.Migration):
         ("events", "0015_merge_0002_event_notes_0014_venue_archived"),
     ]
 
+    def add_announcement_column(apps, schema_editor):
+        if schema_editor.connection.vendor != "postgresql":
+            return
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute(
+                'ALTER TABLE "events_event" ADD COLUMN IF NOT EXISTS "announcement" text NOT NULL DEFAULT \'\';'
+            )
+
     operations = [
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql='ALTER TABLE "events_event" ADD COLUMN IF NOT EXISTS "announcement" text NOT NULL DEFAULT \'\';',
-                    reverse_sql=migrations.RunSQL.noop,
-                )
-            ],
-            state_operations=[
-                migrations.AddField(
-                    model_name="event",
-                    name="announcement",
-                    field=models.TextField(blank=True, default=""),
-                )
-            ],
-        )
+        migrations.RunPython(add_announcement_column, migrations.RunPython.noop),
+        migrations.AddField(
+            model_name="event",
+            name="announcement",
+            field=models.TextField(blank=True, default=""),
+        ),
     ]

@@ -7,7 +7,10 @@ from .views import (
     DeclineBoothRegistrationView,
     EventDetailView,
     EventListCreateView,
+    EventDuplicateView,
     EventMapView,
+    EventNoteDetailView,
+    EventNoteHistoryView,
     MyBoothRegistrationListView,
     PendingBoothRegistrationListView,
     VendorEventBoothsView,
@@ -18,6 +21,9 @@ from .views import (
 urlpatterns = [
     path("", EventListCreateView.as_view(), name="event-list-create"),
     path("<int:pk>/", EventDetailView.as_view(), name="event-detail"),
+    path("<int:pk>/duplicate/", EventDuplicateView.as_view(), name="event-duplicate"),
+    path("<int:pk>/notes/history/", EventNoteHistoryView.as_view(), name="event-note-history"),
+    path("<int:pk>/notes/<int:note_id>/", EventNoteDetailView.as_view(), name="event-note-detail"),
     path("<int:pk>/map/", EventMapView.as_view(), name="event-map"),
     path(
         "<int:pk>/registrations/",

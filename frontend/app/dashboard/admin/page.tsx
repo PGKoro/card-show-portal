@@ -9,6 +9,7 @@ import { getAccessToken } from "@/lib/auth";
 
 type CountKey = "vendorApprovals" | "boothRequests";
 
+
 type AdminTool = {
   href: string;
   title: string;
@@ -66,6 +67,12 @@ const ADMIN_SECTIONS: { title: string; tools: AdminTool[] }[] = [
         href: "/dashboard/admin/accounts/new",
         title: "Account Creator",
         description: "Create a customer or vendor account directly.",
+        countKey: null,
+      },
+      {
+        href: "/dashboard/admin/notes-history",
+        title: "Admin Note History",
+        description: "Review who changed account notes and when.",
         countKey: null,
       },
     ],
