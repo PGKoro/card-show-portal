@@ -11,6 +11,7 @@ from apps.core.views import (
 from apps.listings.views import PublicVendorListingsView
 from apps.users.views import (
     AdminCreateUserView,
+    AdminGlobalNoteDetailView,
     AdminGlobalNoteHistoryView,
     AdminUserDetailView,
     AdminUserImpersonateView,
@@ -113,6 +114,11 @@ urlpatterns = [
         "api/v1/admin/notes/history/",
         AdminGlobalNoteHistoryView.as_view(),
         name="admin-global-note-history",
+    ),
+    path(
+        "api/v1/admin/notes/history/<int:note_id>/",
+        AdminGlobalNoteDetailView.as_view(),
+        name="admin-global-note-detail",
     ),
     path(
         "api/v1/admin/users/create/",

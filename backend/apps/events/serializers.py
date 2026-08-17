@@ -81,7 +81,7 @@ class EventSerializer(serializers.ModelSerializer):
         if not (
             user
             and user.is_authenticated
-            and (user.is_superuser or user.role == User.Role.ADMIN)
+            and (user.is_superuser or user.role in (User.Role.ADMIN, User.Role.OWNER))
         ):
             data.pop("notes", None)
         return data

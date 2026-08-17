@@ -71,13 +71,14 @@ export function isImpersonating(): boolean {
   return getStashedAdminTokens() !== null;
 }
 
-export type UserRole = "vendor" | "customer" | "admin";
+export type UserRole = "vendor" | "customer" | "admin" | "owner";
 
 export function dashboardPathForRole(role: string): string {
   switch (role) {
     case "vendor":
       return "/dashboard/vendor";
     case "admin":
+    case "owner":
       return "/dashboard/admin";
     default:
       return "/dashboard/customer";

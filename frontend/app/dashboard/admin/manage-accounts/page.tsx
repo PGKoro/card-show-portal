@@ -10,9 +10,13 @@ import { ApiError, apiFetch, getApiErrorMessage, type PaginatedResponse } from "
 import { getAccessToken } from "@/lib/auth";
 import { useAuth } from "@/lib/AuthContext";
 
-type Role = "customer" | "vendor" | "admin";
+type Role = "customer" | "vendor" | "admin" | "owner";
 type SearchRole = Role | "";
 type ArchiveFilter = "" | "archived" | "active";
+
+function isStaffRole(role: Role): boolean {
+  return role === "admin" || role === "owner";
+}
 
 type UserResult = {
   pk: number;
@@ -204,6 +208,7 @@ export default function ManageAccountsPage() {
             <option value="customer">Customer</option>
             <option value="vendor">Vendor</option>
             <option value="admin">Admin</option>
+            <option value="owner">Owner</option>
           </select>
           <select
             value={archiveFilter}
@@ -252,6 +257,8 @@ export default function ManageAccountsPage() {
             {results.map((user) => {
               const isSelf = currentUser?.pk === user.pk;
               const noteCount = user.note_count ?? 0;
+              const isOwnerViewer = currentUser?.role === "owner";
+              const isLockedStaffAccount = isStaffRole(user.role) && !isSelf && !isOwnerViewer;
               return (
                 <div
                   key={user.pk}
@@ -261,6 +268,11 @@ export default function ManageAccountsPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="font-semibold">{[user.first_name, user.last_name].filter(Boolean).join(" ") || user.email}</h2>
+                        {user.role === "owner" && (
+                          <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-semibold text-purple-800 dark:bg-purple-950 dark:text-purple-300">
+                            Owner
+                          </span>
+                        )}
                         {user.flagged && (
                           <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800 dark:bg-red-950 dark:text-red-300">
                             Flagged
@@ -278,32 +290,38 @@ export default function ManageAccountsPage() {
                         {user.archived && " · Archived"}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Link
-                        href={`/dashboard/admin/manage-accounts/${user.pk}`}
-                        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
-                      >
-                        Manage
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleFlagged(user)}
-                        disabled={updatingPk === user.pk}
-                        className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
-                      >
-                        {user.flagged ? "Unflag" : "Flag"}
-                      </button>
-                      {isSelf ? (
-                        <p className="text-xs text-gray-400 dark:text-gray-500">You can&apos;t archive or delete your own account.</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isLockedStaffAccount ? (
+                        <p className="text-xs text-gray-400 dark:text-gray-500">Only an owner can manage admin accounts.</p>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleToggleArchived(user)}
-                          disabled={updatingPk === user.pk}
-                          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
-                        >
-                          {user.archived ? "Restore" : "Archive"}
-                        </button>
+                        <>
+                          <Link
+                            href={`/dashboard/admin/manage-accounts/${user.pk}`}
+                            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
+                          >
+                            Manage
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleFlagged(user)}
+                            disabled={updatingPk === user.pk}
+                            className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
+                          >
+                            {user.flagged ? "Unflag" : "Flag"}
+                          </button>
+                          {isSelf ? (
+                            <p className="text-xs text-gray-400 dark:text-gray-500">You can&apos;t archive or delete your own account.</p>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleArchived(user)}
+                              disabled={updatingPk === user.pk}
+                              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
+                            >
+                              {user.archived ? "Restore" : "Archive"}
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

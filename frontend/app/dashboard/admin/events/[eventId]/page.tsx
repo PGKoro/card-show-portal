@@ -8,6 +8,7 @@ import { AuthPageSpinner } from "@/components/AuthPageSpinner";
 import { Pagination } from "@/components/Pagination";
 import { apiFetch, getApiErrorMessage } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
+import { useAuth } from "@/lib/AuthContext";
 import { toDatetimeLocalValue, type ShowEvent } from "@/lib/events";
 import { EventForm, type EventFormPayload } from "../EventForm";
 
@@ -15,6 +16,7 @@ type NoteLogEntry = {
   id: number;
   event: number;
   admin: string | null;
+  author_id: number | null;
   note: string;
   created_at: string;
 };
@@ -27,6 +29,8 @@ type PaginatedNoteResponse = {
 };
 
 function EventNotePanel({ eventId }: { eventId: number }) {
+  const { user: currentUser } = useAuth();
+  const viewerIsOwner = currentUser?.role === "owner";
   const [draftNote, setDraftNote] = useState("");
   const [noteHistory, setNoteHistory] = useState<NoteLogEntry[]>([]);
   const [noteTotal, setNoteTotal] = useState(0);
@@ -36,6 +40,9 @@ function EventNotePanel({ eventId }: { eventId: number }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -105,6 +112,38 @@ function EventNotePanel({ eventId }: { eventId: number }) {
     }
   }
 
+  function startEditingNote(entry: NoteLogEntry) {
+    setEditingNoteId(entry.id);
+    setEditingNoteText(entry.note);
+  }
+
+  function cancelEditingNote() {
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  }
+
+  async function submitEditNote(noteId: number) {
+    if (!editingNoteText.trim()) return;
+    setEditSubmitting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await apiFetch(`/events/${eventId}/notes/${noteId}/`, {
+        method: "PATCH",
+        accessToken: getAccessToken() ?? undefined,
+        body: { note: editingNoteText.trim() },
+      });
+      setEditingNoteId(null);
+      setEditingNoteText("");
+      await loadHistory(page);
+      setSuccess("Note updated.");
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Could not update event note."));
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
       <div className="flex items-center justify-between gap-3">
@@ -138,25 +177,69 @@ function EventNotePanel({ eventId }: { eventId: number }) {
         <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No notes posted yet.</p>
       ) : (
         <div className="mt-3 space-y-3">
-          {noteHistory.map((entry) => (
-            <article key={entry.id} className="rounded-md border border-gray-200 p-3 dark:border-gray-800">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="text-xs text-gray-500 dark:text-gray-400">
-                  <div className="font-medium text-gray-700 dark:text-gray-200">{entry.admin ?? "Unknown admin"}</div>
-                  <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time>
+          {noteHistory.map((entry) => {
+            const canManageThisNote = viewerIsOwner || entry.author_id === currentUser?.pk;
+            const isEditing = editingNoteId === entry.id;
+            return (
+              <article key={entry.id} className="rounded-md border border-gray-200 p-3 dark:border-gray-800">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    <div className="font-medium text-gray-700 dark:text-gray-200">{entry.admin ?? "Unknown admin"}</div>
+                    <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time>
+                  </div>
+                  {canManageThisNote && !isEditing && (
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startEditingNote(entry)}
+                        className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteNote(entry.id)}
+                        disabled={deletingId === entry.id}
+                        className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
+                      >
+                        {deletingId === entry.id ? "Deleting…" : "Delete"}
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => deleteNote(entry.id)}
-                  disabled={deletingId === entry.id}
-                  className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
-                >
-                  {deletingId === entry.id ? "Deleting…" : "Delete"}
-                </button>
-              </div>
-              <p className="mt-2 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{entry.note}</p>
-            </article>
-          ))}
+                {isEditing ? (
+                  <div className="mt-2 space-y-2">
+                    <textarea
+                      value={editingNoteText}
+                      onChange={(e) => setEditingNoteText(e.target.value)}
+                      rows={3}
+                      className="w-full rounded-md border border-gray-300 p-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => submitEditNote(entry.id)}
+                        disabled={editSubmitting || !editingNoteText.trim()}
+                        className="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {editSubmitting ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditingNote}
+                        disabled={editSubmitting}
+                        className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-2 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{entry.note}</p>
+                )}
+              </article>
+            );
+          })}
         </div>
       )}
 

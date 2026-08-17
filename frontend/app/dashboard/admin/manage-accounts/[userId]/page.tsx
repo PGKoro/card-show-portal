@@ -13,7 +13,7 @@ import { useCategories } from "@/lib/CategoriesContext";
 import { PAYMENT_METHOD_OPTIONS } from "@/lib/paymentMethods";
 import { PROFILE_THEME_OPTIONS } from "@/lib/profileThemes";
 
-type Role = "customer" | "vendor" | "admin";
+type Role = "customer" | "vendor" | "admin" | "owner";
 
 type AccountDetail = {
   pk: number;
@@ -46,6 +46,7 @@ type NoteLogEntry = {
   id: number;
   account: string | null;
   admin: string | null;
+  author_id: number | null;
   note: string;
   created_at: string;
 };
@@ -57,12 +58,16 @@ type PaginatedNoteResponse = {
   results: NoteLogEntry[];
 };
 
-const ROLE_OPTIONS: Role[] = ["customer", "vendor", "admin"];
+const ALL_ROLE_OPTIONS: Role[] = ["customer", "vendor", "admin", "owner"];
+
+function isStaffRole(role: Role): boolean {
+  return role === "admin" || role === "owner";
+}
 
 export default function ManageAccountDetailPage() {
   const { userId } = useParams<{ userId: string }>();
   const router = useRouter();
-  const { login } = useAuth();
+  const { user: currentUser, login } = useAuth();
   const { categories } = useCategories();
 
   const [account, setAccount] = useState<AccountDetail | null>(null);
@@ -99,6 +104,9 @@ export default function ManageAccountDetailPage() {
   const [draftNote, setDraftNote] = useState("");
   const [noteSubmitting, setNoteSubmitting] = useState(false);
   const [noteDeletingId, setNoteDeletingId] = useState<number | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const [noteEditSubmitting, setNoteEditSubmitting] = useState(false);
   const [impersonating, setImpersonating] = useState(false);
 
   useEffect(() => {
@@ -208,6 +216,36 @@ export default function ManageAccountDetailPage() {
       setError(getApiErrorMessage(err, "Could not delete note. Please try again."));
     } finally {
       setNoteDeletingId(null);
+    }
+  }
+
+  function startEditingNote(entry: NoteLogEntry) {
+    setEditingNoteId(entry.id);
+    setEditingNoteText(entry.note);
+  }
+
+  function cancelEditingNote() {
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  }
+
+  async function submitEditNote(noteId: number) {
+    if (!editingNoteText.trim()) return;
+    setNoteEditSubmitting(true);
+    setError(null);
+    try {
+      await apiFetch(`/admin/users/${userId}/history/${noteId}/`, {
+        method: "PATCH",
+        accessToken: getAccessToken() ?? undefined,
+        body: { note: editingNoteText.trim() },
+      });
+      setEditingNoteId(null);
+      setEditingNoteText("");
+      setNoteReloadKey((value) => value + 1);
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Could not update note. Please try again."));
+    } finally {
+      setNoteEditSubmitting(false);
     }
   }
 
@@ -329,6 +367,13 @@ export default function ManageAccountDetailPage() {
   }
 
   const noteCount = account.note_count ?? 0;
+  const viewerIsOwner = currentUser?.role === "owner";
+  const isLockedForViewer = isStaffRole(account.role) && !viewerIsOwner;
+  // Owner accounts can never be impersonated by anyone. An admin account
+  // can only be impersonated by an owner — mirrors the backend's
+  // can_manage_staff_target rule used for edit/archive/etc.
+  const canImpersonate =
+    account.role !== "owner" && (account.role !== "admin" || viewerIsOwner);
 
   return (
     <main className="flex-1 px-6 py-12">
@@ -343,7 +388,7 @@ export default function ManageAccountDetailPage() {
               <h1 className="text-2xl font-semibold">
                 {[account.first_name, account.last_name].filter(Boolean).join(" ") || account.email}
               </h1>
-              {account.role !== "admin" && (
+              {canImpersonate && (
                 <button
                   type="button"
                   onClick={impersonateUser}
@@ -364,6 +409,12 @@ export default function ManageAccountDetailPage() {
               )}
             </p>
 
+            {isLockedForViewer && (
+              <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                Only an owner can edit an admin or owner account.
+              </div>
+            )}
+
             {success && (
               <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
                 Saved.
@@ -371,6 +422,7 @@ export default function ManageAccountDetailPage() {
             )}
 
             <form onSubmit={saveMainDetails} className="space-y-4">
+              <fieldset disabled={isLockedForViewer} className="space-y-4 disabled:opacity-60">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label htmlFor="email" className="block text-sm font-medium">
@@ -396,7 +448,7 @@ export default function ManageAccountDetailPage() {
                       onChange={(e) => setRole(e.target.value as Role)}
                       className="w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
                     >
-                      {ROLE_OPTIONS.map((option) => (
+                      {ALL_ROLE_OPTIONS.map((option) => (
                         <option key={option} value={option}>
                           {option}
                         </option>
@@ -627,8 +679,9 @@ export default function ManageAccountDetailPage() {
                 className="rounded-md bg-brand-blue px-5 py-2.5 font-medium text-white hover:bg-brand-navy disabled:opacity-50"
               >
                 {submitting ? "Saving…" : "Save changes"}
-              </button>
-            </form>
+                </button>
+                </fieldset>
+                </form>
           </section>
 
           <aside className="space-y-4">
@@ -640,6 +693,7 @@ export default function ManageAccountDetailPage() {
                 <span className="text-xs text-gray-400">{noteCount} total</span>
               </div>
               <form onSubmit={postNote} className="mt-3 space-y-3">
+                <fieldset disabled={isLockedForViewer} className="space-y-3 disabled:opacity-60">
                 <textarea
                   rows={4}
                   value={draftNote}
@@ -654,6 +708,7 @@ export default function ManageAccountDetailPage() {
                 >
                   {noteSubmitting ? "Posting…" : "Post note"}
                 </button>
+                </fieldset>
               </form>
             </section>
 
@@ -669,27 +724,73 @@ export default function ManageAccountDetailPage() {
                 <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No notes posted yet.</p>
               ) : (
                 <div className="mt-3 space-y-3">
-                  {noteHistory.map((entry) => (
-                    <article key={entry.id} className="rounded-md border border-gray-200 p-3 dark:border-gray-800">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          <div className="font-medium text-gray-700 dark:text-gray-200">
-                            {entry.admin ?? "Unknown admin"}
+                  {noteHistory.map((entry) => {
+                    const canManageThisNote =
+                      !isLockedForViewer &&
+                      (viewerIsOwner || entry.author_id === currentUser?.pk);
+                    const isEditing = editingNoteId === entry.id;
+                    return (
+                      <article key={entry.id} className="rounded-md border border-gray-200 p-3 dark:border-gray-800">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            <div className="font-medium text-gray-700 dark:text-gray-200">
+                              {entry.admin ?? "Unknown admin"}
+                            </div>
+                            <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time>
                           </div>
-                          <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time>
+                          {canManageThisNote && !isEditing && (
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startEditingNote(entry)}
+                                className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteNote(entry.id)}
+                                disabled={noteDeletingId === entry.id}
+                                className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
+                              >
+                                {noteDeletingId === entry.id ? "Deleting…" : "Delete"}
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => deleteNote(entry.id)}
-                          disabled={noteDeletingId === entry.id}
-                          className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
-                        >
-                          {noteDeletingId === entry.id ? "Deleting…" : "Delete"}
-                        </button>
-                      </div>
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{entry.note}</p>
-                    </article>
-                  ))}
+                        {isEditing ? (
+                          <div className="mt-2 space-y-2">
+                            <textarea
+                              value={editingNoteText}
+                              onChange={(event) => setEditingNoteText(event.target.value)}
+                              rows={3}
+                              className="w-full rounded-md border border-gray-300 p-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => submitEditNote(entry.id)}
+                                disabled={noteEditSubmitting || !editingNoteText.trim()}
+                                className="rounded-md bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                              >
+                                {noteEditSubmitting ? "Saving…" : "Save"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditingNote}
+                                disabled={noteEditSubmitting}
+                                className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="mt-2 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{entry.note}</p>
+                        )}
+                      </article>
+                    );
+                  })}
                 </div>
               )}
 

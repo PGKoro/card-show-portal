@@ -48,6 +48,11 @@ class User(AbstractUser):
         VENDOR = "vendor", "Vendor"
         CUSTOMER = "customer", "Customer"
         ADMIN = "admin", "Admin"
+        # "Admin for admins" — everything a regular admin can do, plus the
+        # ability to edit/archive/flag/delete/impersonate other admin (and
+        # owner) accounts, which regular admins are explicitly blocked from
+        # touching. See apps.core.permissions for the enforcement.
+        OWNER = "owner", "Owner"
 
     class VendorStatus(models.TextChoices):
         PENDING_REVIEW = "pending_review", "Pending review"

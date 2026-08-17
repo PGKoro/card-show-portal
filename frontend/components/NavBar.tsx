@@ -88,10 +88,10 @@ export function NavBar() {
             >
               <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-brand-blue text-xs font-semibold text-white">
                 {initials}
-                {user.role === "admin" && (
+                {(user.role === "admin" || user.role === "owner") && (
                   <span
-                    title="Admin"
-                    aria-label="Admin"
+                    title={user.role === "owner" ? "Owner" : "Admin"}
+                    aria-label={user.role === "owner" ? "Owner" : "Admin"}
                     className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 ring-2 ring-white"
                   >
                     <svg viewBox="0 0 20 20" className="h-2.5 w-2.5 fill-white" aria-hidden="true">

@@ -3,13 +3,14 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsAdminRole, IsApprovedVendor
+from apps.core.permissions import IsAdminRole, IsApprovedVendor, can_manage_note
 from apps.users.models import AdminNoteChange, User
 
 from .models import (
@@ -38,7 +39,9 @@ from .services import create_loyalty_holds
 
 
 def _is_admin(user):
-    return user.is_authenticated and (user.is_superuser or user.role == User.Role.ADMIN)
+    return user.is_authenticated and (
+        user.is_superuser or user.role in (User.Role.ADMIN, User.Role.OWNER)
+    )
 
 
 class EventListCreateView(generics.ListCreateAPIView):
@@ -158,6 +161,7 @@ class EventNoteHistoryView(APIView):
                 "event": change.target_id,
                 "admin": getattr(change.author, "get_full_name", lambda: "")()
                 or (change.author.email if change.author else None),
+                "author_id": change.author_id,
                 "note": change.new_text,
                 "created_at": change.created_at,
             }
@@ -198,16 +202,70 @@ class EventNoteHistoryView(APIView):
 
 
 class EventNoteDetailView(APIView):
+    """
+    PATCH/DELETE a single event note. Same authoring rule as account
+    notes: an owner (or superuser) can manage any note, a plain admin can
+    only edit/delete a note they personally wrote (see can_manage_note).
+    """
+
     permission_classes = [IsAuthenticated, IsAdminRole]
 
-    def delete(self, request, pk, note_id):
-        event = get_object_or_404(Event, pk=pk)
-        note = get_object_or_404(
+    def _get_note(self, pk, note_id):
+        return get_object_or_404(
             AdminNoteChange,
             pk=note_id,
             target_type=AdminNoteChange.TARGET_EVENT,
             target_id=pk,
         )
+
+    def _serialize_changes(self, changes):
+        return [
+            {
+                "id": change.id,
+                "event": change.target_id,
+                "admin": getattr(change.author, "get_full_name", lambda: "")()
+                or (change.author.email if change.author else None),
+                "author_id": change.author_id,
+                "note": change.new_text,
+                "created_at": change.created_at,
+            }
+            for change in changes
+        ]
+
+    def patch(self, request, pk, note_id):
+        note = self._get_note(pk, note_id)
+        if not can_manage_note(request.user, note):
+            raise PermissionDenied("You can only edit notes you posted yourself.")
+        new_text = (request.data.get("note") or "").strip()
+        if not new_text:
+            return Response({"note": "Note can't be empty."}, status=status.HTTP_400_BAD_REQUEST)
+        note.new_text = new_text
+        note.save(update_fields=["new_text"])
+
+        event = get_object_or_404(Event, pk=pk)
+        latest_note = (
+            AdminNoteChange.objects.filter(
+                target_type=AdminNoteChange.TARGET_EVENT,
+                target_id=pk,
+            )
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        if latest_note and latest_note.pk == note.pk:
+            event.notes = note.new_text
+            event.save(update_fields=["notes"])
+
+        changes = AdminNoteChange.objects.filter(
+            target_type=AdminNoteChange.TARGET_EVENT,
+            target_id=pk,
+        )
+        return Response(self._serialize_changes(changes))
+
+    def delete(self, request, pk, note_id):
+        event = get_object_or_404(Event, pk=pk)
+        note = self._get_note(pk, note_id)
+        if not can_manage_note(request.user, note):
+            raise PermissionDenied("You can only delete notes you posted yourself.")
         note.delete()
         latest_note = (
             AdminNoteChange.objects.filter(
@@ -223,19 +281,7 @@ class EventNoteDetailView(APIView):
             target_type=AdminNoteChange.TARGET_EVENT,
             target_id=pk,
         )
-        return Response(
-            [
-                {
-                    "id": change.id,
-                    "event": change.target_id,
-                    "admin": getattr(change.author, "get_full_name", lambda: "")()
-                    or (change.author.email if change.author else None),
-                    "note": change.new_text,
-                    "created_at": change.created_at,
-                }
-                for change in changes
-            ]
-        )
+        return Response(self._serialize_changes(changes))
 
 
 class EventDuplicateView(APIView):

@@ -218,6 +218,7 @@ class AdminAccountNoteLogSerializer(serializers.ModelSerializer):
     account = serializers.SerializerMethodField()
     admin = serializers.SerializerMethodField()
     note = serializers.CharField(source="new_text")
+    author_id = serializers.IntegerField(source="author.pk", default=None)
 
     class Meta:
         model = AdminNoteChange
@@ -225,6 +226,7 @@ class AdminAccountNoteLogSerializer(serializers.ModelSerializer):
             "id",
             "account",
             "admin",
+            "author_id",
             "note",
             "created_at",
         )
@@ -252,6 +254,7 @@ class AdminGlobalNoteLogSerializer(serializers.ModelSerializer):
     admin = serializers.SerializerMethodField()
     note = serializers.CharField(source="new_text")
     target_label = serializers.SerializerMethodField()
+    author_id = serializers.IntegerField(source="author.pk", default=None)
 
     class Meta:
         model = AdminNoteChange
@@ -261,6 +264,7 @@ class AdminGlobalNoteLogSerializer(serializers.ModelSerializer):
             "target_id",
             "target_label",
             "admin",
+            "author_id",
             "note",
             "created_at",
         )
@@ -575,10 +579,16 @@ class AdminCreateUserSerializer(SocialLinksMixin, serializers.ModelSerializer):
     The account is created fully set up (onboarding_completed=True) so it
     can log in immediately; a vendor account created this way is
     auto-approved, since the admin creating it is already vouching for it.
+
+    ``role`` also accepts admin/owner — but only an owner is allowed to
+    submit those values at all; the view enforces that restriction before
+    this serializer ever validates the request (see AdminCreateUserView).
     """
 
     password = serializers.CharField(write_only=True)
-    role = serializers.ChoiceField(choices=[User.Role.CUSTOMER, User.Role.VENDOR])
+    role = serializers.ChoiceField(
+        choices=[User.Role.CUSTOMER, User.Role.VENDOR, User.Role.ADMIN, User.Role.OWNER]
+    )
     category_tags = serializers.ListField(
         child=serializers.CharField(),
         required=False,

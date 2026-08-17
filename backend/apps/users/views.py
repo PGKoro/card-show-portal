@@ -7,14 +7,19 @@ from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from apps.core.permissions import IsAdminRole
+from apps.core.permissions import (
+    IsAdminRole,
+    can_manage_note,
+    can_manage_staff_target,
+    is_last_active_owner,
+)
 
 from .models import AdminNoteChange, User
 from .serializers import (
@@ -125,7 +130,7 @@ class AdminUserSearchView(generics.ListAPIView):
         search = self.request.query_params.get("search", "").strip()
         role = self.request.query_params.get("role", "").strip()
         queryset = User.objects.order_by("email")
-        if role in (User.Role.VENDOR, User.Role.CUSTOMER, User.Role.ADMIN):
+        if role in (User.Role.VENDOR, User.Role.CUSTOMER, User.Role.ADMIN, User.Role.OWNER):
             queryset = queryset.filter(role=role)
         if self.request.query_params.get("flagged", "").strip().lower() in ("1", "true", "yes"):
             queryset = queryset.filter(flagged=True)
@@ -156,12 +161,22 @@ class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
         return UserDetailsSerializer
 
     def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not can_manage_staff_target(request.user, instance):
+            raise PermissionDenied("Only an owner can edit another admin's account.")
         super().update(request, *args, **kwargs)
         return Response(UserDetailsSerializer(self.get_object()).data)
 
     def perform_destroy(self, instance):
         if instance.pk == self.request.user.pk:
             raise ValidationError("You can't delete your own account.")
+        if not can_manage_staff_target(self.request.user, instance):
+            raise PermissionDenied("Only an owner can delete another admin's account.")
+        if is_last_active_owner(instance):
+            raise ValidationError(
+                "Can't delete the last owner account — promote another account to "
+                "owner first."
+            )
         instance.delete()
 
 
@@ -175,6 +190,11 @@ class ArchiveUserView(APIView):
                 {"detail": "You can't archive your own account."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if not can_manage_staff_target(request.user, user):
+            return Response(
+                {"detail": "Only an owner can archive another admin's account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         archived = request.data.get("archived")
         if archived is None:
             archived = True
@@ -182,6 +202,11 @@ class ArchiveUserView(APIView):
             archived = archived.strip().lower() in ("1", "true", "yes", "on")
         else:
             archived = bool(archived)
+        if archived and is_last_active_owner(user):
+            return Response(
+                {"detail": "Can't archive the last owner account — promote another account to owner first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         user.archived = archived
         user.save(update_fields=["archived"])
         return Response(UserDetailsSerializer(user).data)
@@ -195,6 +220,11 @@ class RestoreUserView(APIView):
 
     def post(self, request, pk):
         user = get_object_or_404(User, pk=pk)
+        if not can_manage_staff_target(request.user, user):
+            return Response(
+                {"detail": "Only an owner can restore another admin's account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         user.archived = False
         user.save(update_fields=["archived"])
         return Response(UserDetailsSerializer(user).data)
@@ -205,6 +235,11 @@ class FlagUserView(APIView):
 
     def post(self, request, pk):
         user = get_object_or_404(User, pk=pk)
+        if not can_manage_staff_target(request.user, user):
+            return Response(
+                {"detail": "Only an owner can flag another admin's account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         user.flagged = True
         user.save(update_fields=["flagged"])
         return Response(UserDetailsSerializer(user).data)
@@ -215,18 +250,38 @@ class UnflagUserView(APIView):
 
     def post(self, request, pk):
         user = get_object_or_404(User, pk=pk)
+        if not can_manage_staff_target(request.user, user):
+            return Response(
+                {"detail": "Only an owner can unflag another admin's account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         user.flagged = False
         user.save(update_fields=["flagged"])
         return Response(UserDetailsSerializer(user).data)
 
 
 class AdminCreateUserView(generics.CreateAPIView):
-    """POST /api/v1/admin/users/create/ — admin provisioning tool."""
+    """
+    POST /api/v1/admin/users/create/ — admin provisioning tool.
+
+    Regular admins may only provision customer/vendor accounts. Creating
+    an admin or owner account is itself a staff-management action, so it's
+    restricted to owners (and superusers) — same rule as editing an
+    existing admin's account.
+    """
 
     permission_classes = [IsAdminRole]
     serializer_class = AdminCreateUserSerializer
 
     def create(self, request, *args, **kwargs):
+        requested_role = request.data.get("role")
+        if requested_role in (User.Role.ADMIN, User.Role.OWNER) and not (
+            request.user.is_superuser or request.user.role == User.Role.OWNER
+        ):
+            return Response(
+                {"detail": "Only an owner can create an admin or owner account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
@@ -240,16 +295,35 @@ class SetUserRoleView(APIView):
 
     def post(self, request, pk):
         new_role = request.data.get("role")
-        if new_role not in (User.Role.CUSTOMER, User.Role.VENDOR, User.Role.ADMIN):
+        if new_role not in (User.Role.CUSTOMER, User.Role.VENDOR, User.Role.ADMIN, User.Role.OWNER):
             return Response(
-                {"role": "Must be one of: customer, vendor, admin."},
+                {"role": "Must be one of: customer, vendor, admin, owner."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         user = get_object_or_404(User, pk=pk)
+
+        # Promoting/demoting into or out of admin/owner is itself a
+        # staff-management action, on top of the target already being
+        # staff — a plain admin can't touch either direction.
+        target_is_or_will_be_staff = new_role in (User.Role.ADMIN, User.Role.OWNER)
+        if not can_manage_staff_target(request.user, user) or (
+            target_is_or_will_be_staff
+            and not (request.user.is_superuser or request.user.role == User.Role.OWNER)
+        ):
+            return Response(
+                {"detail": "Only an owner can change another admin's role, or promote someone to admin/owner."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if new_role != User.Role.OWNER and is_last_active_owner(user):
+            return Response(
+                {"detail": "Can't change the last owner's role — promote another account to owner first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         user.role = new_role
 
-        if new_role == User.Role.ADMIN:
+        if new_role in (User.Role.ADMIN, User.Role.OWNER):
             user.onboarding_completed = True
         elif new_role == User.Role.VENDOR:
             if user.vendor_status is None:
@@ -312,6 +386,70 @@ class AdminGlobalNoteHistoryView(APIView):
         )
 
 
+class AdminGlobalNoteDetailView(APIView):
+    """
+    PATCH/DELETE a single note from the site-wide Admin Note History feed,
+    regardless of whether it's attached to an account or an event. Same
+    authoring rule as the dedicated account/event note endpoints: an
+    owner (or superuser) can manage any note, a plain admin can only
+    edit/delete a note they personally wrote (see can_manage_note). Notes
+    on an admin/owner's own account additionally require an owner
+    regardless of who wrote the note (see can_manage_staff_target).
+    """
+
+    permission_classes = [IsAdminRole]
+
+    def _get_note(self, note_id):
+        return get_object_or_404(AdminNoteChange, pk=note_id)
+
+    def _check_permissions(self, request, note):
+        if note.target_type == AdminNoteChange.TARGET_USER:
+            target_user = User.objects.filter(pk=note.target_id).first()
+            if target_user and not can_manage_staff_target(request.user, target_user):
+                raise PermissionDenied(
+                    "Only an owner can manage notes on another admin's account."
+                )
+        if not can_manage_note(request.user, note):
+            raise PermissionDenied("You can only edit or delete notes you posted yourself.")
+
+    def _sync_denormalized_field(self, target_type, target_id):
+        if target_type == AdminNoteChange.TARGET_USER:
+            target = User.objects.filter(pk=target_id).first()
+        elif target_type == AdminNoteChange.TARGET_EVENT:
+            from apps.events.models import Event  # local import avoids a circular import
+
+            target = Event.objects.filter(pk=target_id).first()
+        else:
+            return
+        if not target:
+            return
+        latest_note = (
+            AdminNoteChange.objects.filter(target_type=target_type, target_id=target_id)
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        target.notes = latest_note.new_text if latest_note else ""
+        target.save(update_fields=["notes"])
+
+    def patch(self, request, note_id):
+        note = self._get_note(note_id)
+        self._check_permissions(request, note)
+        serializer = AdminUserNoteCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        note.new_text = serializer.validated_data["note"]
+        note.save(update_fields=["new_text"])
+        self._sync_denormalized_field(note.target_type, note.target_id)
+        return Response(AdminGlobalNoteLogSerializer(note).data)
+
+    def delete(self, request, note_id):
+        note = self._get_note(note_id)
+        self._check_permissions(request, note)
+        target_type, target_id = note.target_type, note.target_id
+        note.delete()
+        self._sync_denormalized_field(target_type, target_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class AdminUserNoteHistoryView(APIView):
     permission_classes = [IsAdminRole]
     pagination_class = NoteHistoryPagination
@@ -339,6 +477,8 @@ class AdminUserNoteHistoryView(APIView):
         serializer.is_valid(raise_exception=True)
         note = serializer.validated_data["note"]
         user = get_object_or_404(User, pk=pk)
+        if not can_manage_staff_target(request.user, user):
+            raise PermissionDenied("Only an owner can add notes on another admin's account.")
         previous = user.notes or ""
         user.notes = note
         user.save(update_fields=["notes"])
@@ -353,17 +493,26 @@ class AdminUserNoteHistoryView(APIView):
 
 
 class AdminUserNoteDetailView(APIView):
+    """
+    PATCH/DELETE a single account note. Editing/deleting someone else's
+    note requires an owner — a plain admin can only manage notes they
+    personally authored (see can_manage_note). This is on top of, not a
+    replacement for, can_manage_staff_target: touching a note attached to
+    an admin/owner's account still requires an owner regardless of who
+    wrote the note.
+    """
+
     permission_classes = [IsAdminRole]
 
-    def delete(self, request, pk, note_id):
-        user = get_object_or_404(User, pk=pk)
-        note = get_object_or_404(
+    def _get_note(self, pk, note_id):
+        return get_object_or_404(
             AdminNoteChange,
             pk=note_id,
             target_type=AdminNoteChange.TARGET_USER,
             target_id=pk,
         )
-        note.delete()
+
+    def _refresh_user_notes_field(self, user, pk):
         latest_note = (
             AdminNoteChange.objects.filter(
                 target_type=AdminNoteChange.TARGET_USER,
@@ -374,6 +523,49 @@ class AdminUserNoteDetailView(APIView):
         )
         user.notes = latest_note.new_text if latest_note else ""
         user.save(update_fields=["notes"])
+
+    def patch(self, request, pk, note_id):
+        user = get_object_or_404(User, pk=pk)
+        if not can_manage_staff_target(request.user, user):
+            raise PermissionDenied("Only an owner can edit notes on another admin's account.")
+        note = self._get_note(pk, note_id)
+        if not can_manage_note(request.user, note):
+            raise PermissionDenied("You can only edit notes you posted yourself.")
+        serializer = AdminUserNoteCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        note.new_text = serializer.validated_data["note"]
+        note.save(update_fields=["new_text"])
+        # Keep the account's denormalized `notes` field in sync — it
+        # always mirrors the most recent note, and editing the most
+        # recent note is the common case (editing an older one leaves the
+        # field alone, matching how delete only re-derives from what's
+        # left after removal).
+        latest_note = (
+            AdminNoteChange.objects.filter(
+                target_type=AdminNoteChange.TARGET_USER,
+                target_id=pk,
+            )
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        if latest_note and latest_note.pk == note.pk:
+            user.notes = note.new_text
+            user.save(update_fields=["notes"])
+        changes = AdminNoteChange.objects.filter(
+            target_type=AdminNoteChange.TARGET_USER,
+            target_id=pk,
+        )
+        return Response(AdminAccountNoteLogSerializer(changes, many=True).data)
+
+    def delete(self, request, pk, note_id):
+        user = get_object_or_404(User, pk=pk)
+        if not can_manage_staff_target(request.user, user):
+            raise PermissionDenied("Only an owner can delete notes on another admin's account.")
+        note = self._get_note(pk, note_id)
+        if not can_manage_note(request.user, note):
+            raise PermissionDenied("You can only delete notes you posted yourself.")
+        note.delete()
+        self._refresh_user_notes_field(user, pk)
         changes = AdminNoteChange.objects.filter(
             target_type=AdminNoteChange.TARGET_USER,
             target_id=pk,
@@ -383,11 +575,26 @@ class AdminUserNoteDetailView(APIView):
 
 class AdminUserImpersonateView(APIView):
     """
-    Issues a fresh JWT pair for the target user so an admin can view the
-    app exactly as that user sees it. Locked to admins only, blocks
-    impersonating another admin (avoids one admin silently acting as
-    another), and logs every use into AdminNoteChange so it shows up in
-    the site-wide Admin Note History feed for accountability.
+    Issues a fresh JWT pair for the target user so an admin/owner can view
+    the app exactly as that user sees it.
+
+    - Owner (or superuser) can impersonate a regular admin account, on top
+      of every customer/vendor account — owner is "admin for admins" and
+      this extends that to impersonation.
+    - A plain admin can impersonate customer/vendor accounts but NOT
+      another admin account (uses the same `can_manage_staff_target` rule
+      as editing/archiving another admin).
+    - Owner accounts themselves can never be impersonated by anyone,
+      including other owners — there's no legitimate "view as" use case
+      for the top of the privilege chain, and it would be too easy for
+      one owner's session to quietly act as another's. This check is
+      based on the target's actual `role` field, not `is_superuser` —
+      some legacy admin accounts (e.g. the original seed superuser) carry
+      `is_superuser=True` with `role="admin"`, and those should follow
+      normal admin impersonation rules, not be treated as owners.
+
+    Every successful impersonation is logged into AdminNoteChange so it
+    shows up in the site-wide Admin Note History feed for accountability.
     """
 
     permission_classes = [IsAdminRole]
@@ -400,10 +607,15 @@ class AdminUserImpersonateView(APIView):
                 {"detail": "You can't impersonate your own account."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if user.role == User.Role.ADMIN or user.is_superuser:
+        if user.role == User.Role.OWNER:
             return Response(
-                {"detail": "Admin accounts can't be impersonated."},
+                {"detail": "Owner accounts can't be impersonated."},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        if user.role == User.Role.ADMIN and not can_manage_staff_target(request.user, user):
+            return Response(
+                {"detail": "Only an owner can impersonate an admin account."},
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         refresh = RefreshToken.for_user(user)
