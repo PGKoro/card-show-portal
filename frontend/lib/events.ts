@@ -28,6 +28,7 @@ export type ShowEvent = {
   vendors: number[];
   vendors_detail: VendorDetail[];
   vendor_count: number;
+  note_count: number;
   status: EventStatus;
   /** True once start_date has been reached — distinct from `status`,
    * which only flips to "past" once a multi-day event has fully ended.

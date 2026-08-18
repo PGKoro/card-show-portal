@@ -305,8 +305,8 @@ class EventApiTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
         self.assertEqual(history.status_code, status.HTTP_200_OK)
-        self.assertGreaterEqual(len(history.data), 1)
-        self.assertEqual(history.data[0]["new_text"], "Second event note")
+        self.assertGreaterEqual(len(history.data["results"]), 1)
+        self.assertEqual(history.data["results"][0]["note"], "Second event note")
 
     def test_create_requires_a_map_venue(self):
         access = self.access_for("events-admin@example.com")

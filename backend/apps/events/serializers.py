@@ -54,8 +54,6 @@ class EventSerializer(serializers.ModelSerializer):
             "vendors_detail",
             "vendor_count",
             "note_count",
-            "estimated_cards",
-            "estimated_attendees",
             "status",
             "has_started",
             "archived",

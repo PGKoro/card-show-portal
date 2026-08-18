@@ -975,9 +975,9 @@ class AdminUserDetailTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {self.admin_access}",
         )
         self.assertEqual(history.status_code, status.HTTP_200_OK)
-        self.assertGreaterEqual(len(history.data), 1)
-        self.assertEqual(history.data[0]["admin"], "admin4@example.com")
-        self.assertEqual(history.data[0]["note"], "Updated note")
+        self.assertGreaterEqual(len(history.data["results"]), 1)
+        self.assertEqual(history.data["results"][0]["admin"], "admin4@example.com")
+        self.assertEqual(history.data["results"][0]["note"], "Updated note")
 
     def test_editing_rejects_duplicate_email(self):
         User.objects.create_user(email="taken@example.com", password="s3cret!23")

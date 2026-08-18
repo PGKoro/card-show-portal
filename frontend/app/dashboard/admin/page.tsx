@@ -73,6 +73,9 @@ const ADMIN_SECTIONS: { title: string; tools: AdminTool[] }[] = [
         href: "/dashboard/admin/notes-history",
         title: "Admin Note History",
         description: "Review who changed account notes and when.",
+        countKey: null,
+      },
+      {
         href: "/dashboard/admin/vendor-tiers",
         title: "Vendor Tiers",
         description: "Assign vendors to Premium, Standard, or Basic.",

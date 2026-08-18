@@ -294,8 +294,6 @@ class EventDuplicateView(APIView):
             description=event.description,
             start_date=event.start_date,
             end_date=event.end_date,
-            estimated_cards=event.estimated_cards,
-            estimated_attendees=event.estimated_attendees,
             archived=False,
             announcement=event.announcement,
             notes=event.notes,
