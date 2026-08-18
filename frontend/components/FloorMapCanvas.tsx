@@ -218,11 +218,13 @@ export function FloorMapCanvas({ map }: { map: EventMap }) {
         </div>
       )}
 
-      {/* min-w keeps booth markers/labels from crowding into an unreadable
-          mess on narrow screens — below that width the map scrolls
-          horizontally instead of squeezing everything down. */}
+      {/* min-w keeps booth numbers at a legible pixel size on phones —
+          booths are a fixed percent of this width, so a narrow container
+          shrinks the text past reading size long before it looks
+          "crowded." Below that width the map scrolls horizontally
+          instead. */}
       <div className="overflow-x-auto">
-        <div className="relative w-full min-w-[560px] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+        <div className="relative w-full min-w-[1200px] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={displayImageUrl} alt="Event floor map" className="block w-full" />
 

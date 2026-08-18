@@ -11,16 +11,19 @@ import { useCategories } from "@/lib/CategoriesContext";
 import {
   aisleGridBounds,
   BOOTH_SIZE,
+  formatVenueAddress,
   generateAisleGrid,
   MAP_PRESETS,
   percent,
   resolveMapImage,
+  type Venue,
   type VenueAmenity,
   type VenueBooth,
   type VenueMap,
   type VenueSection,
 } from "@/lib/floorMap";
 import { themeFor } from "@/lib/profileThemes";
+import { US_STATES } from "@/lib/usStates";
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Mode = "select" | "booth" | "section" | "amenity";
@@ -113,6 +116,16 @@ export default function VenueMapEditorPage() {
   const [mapImagePreset, setMapImagePreset] = useState("");
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
+
+  const [venue, setVenue] = useState<Venue | null>(null);
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [addressLine1, setAddressLine1] = useState("");
+  const [addressLine2, setAddressLine2] = useState("");
+  const [addressCity, setAddressCity] = useState("");
+  const [addressState, setAddressState] = useState("");
+  const [addressZip, setAddressZip] = useState("");
+  const [savingAddress, setSavingAddress] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
 
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -321,6 +334,49 @@ export default function VenueMapEditorPage() {
       cancelled = true;
     };
   }, [venueId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<Venue>(`/venues/${venueId}/`, { accessToken: getAccessToken() ?? undefined }).then(
+      (data) => {
+        if (cancelled) return;
+        setVenue(data);
+        setAddressLine1(data.address_line1);
+        setAddressLine2(data.address_line2);
+        setAddressCity(data.city);
+        setAddressState(data.state);
+        setAddressZip(data.zip_code);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [venueId]);
+
+  async function handleSaveAddress(e: FormEvent) {
+    e.preventDefault();
+    setSavingAddress(true);
+    setAddressError(null);
+    try {
+      const updated = await apiFetch<Venue>(`/venues/${venueId}/`, {
+        method: "PATCH",
+        accessToken: getAccessToken() ?? undefined,
+        body: {
+          address_line1: addressLine1,
+          address_line2: addressLine2,
+          city: addressCity,
+          state: addressState,
+          zip_code: addressZip,
+        },
+      });
+      setVenue(updated);
+      setEditingAddress(false);
+    } catch (err) {
+      setAddressError(getApiErrorMessage(err, "Could not save this address."));
+    } finally {
+      setSavingAddress(false);
+    }
+  }
 
   useEffect(() => {
     function handler(e: BeforeUnloadEvent) {
@@ -1308,6 +1364,108 @@ export default function VenueMapEditorPage() {
           add new ones.
         </p>
 
+        {venue && (
+          <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-transparent">
+            {editingAddress ? (
+              <form onSubmit={handleSaveAddress} className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Street address</label>
+                  <input
+                    value={addressLine1}
+                    onChange={(e) => setAddressLine1(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    Address line 2 <span className="font-normal text-gray-400">(optional)</span>
+                  </label>
+                  <input
+                    value={addressLine2}
+                    onChange={(e) => setAddressLine2(e.target.value)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">City</label>
+                    <input
+                      value={addressCity}
+                      onChange={(e) => setAddressCity(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">State</label>
+                    <select
+                      value={addressState}
+                      onChange={(e) => setAddressState(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                    >
+                      <option value="">Select...</option>
+                      {US_STATES.map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">ZIP code</label>
+                    <input
+                      value={addressZip}
+                      onChange={(e) => setAddressZip(e.target.value)}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-transparent"
+                    />
+                  </div>
+                </div>
+
+                {addressError && (
+                  <p className="text-sm text-red-600 dark:text-red-400">{addressError}</p>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="submit"
+                    disabled={savingAddress}
+                    className="rounded-md bg-brand-blue px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy disabled:opacity-50"
+                  >
+                    {savingAddress ? "Saving..." : "Save address"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingAddress(false);
+                      setAddressLine1(venue.address_line1);
+                      setAddressLine2(venue.address_line2);
+                      setAddressCity(venue.city);
+                      setAddressState(venue.state);
+                      setAddressZip(venue.zip_code);
+                      setAddressError(null);
+                    }}
+                    className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  {formatVenueAddress(venue) || "No address set"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setEditingAddress(true)}
+                  className="text-sm font-medium text-brand-blue hover:underline"
+                >
+                  Edit address
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {pageError && (
           <p className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
             {pageError}
@@ -1486,10 +1644,15 @@ export default function VenueMapEditorPage() {
         )}
 
         {displayImageUrl && (
+          // min-w keeps booth/section/amenity labels at a legible pixel
+          // size on phones — overflow-x-auto lets the editor scroll
+          // horizontally there instead of shrinking the text past reading
+          // size.
+          <div className="overflow-x-auto">
           <div
             ref={containerRef}
             onMouseDown={onContainerMouseDown}
-            className="relative mt-4 w-full cursor-crosshair select-none overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800"
+            className="relative mt-4 w-full min-w-[1200px] cursor-crosshair select-none overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -1641,6 +1804,7 @@ export default function VenueMapEditorPage() {
                 }}
               />
             )}
+          </div>
           </div>
         )}
 

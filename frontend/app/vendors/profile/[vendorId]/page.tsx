@@ -11,6 +11,7 @@ import { ShowCard } from "@/components/ShowCard";
 import { SocialLinks } from "@/components/SocialLinks";
 import { Spinner } from "@/components/Spinner";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 import { getAccessToken } from "@/lib/auth";
 import { useCategories } from "@/lib/CategoriesContext";
 import type { ShowEvent } from "@/lib/events";
@@ -38,6 +39,13 @@ type PublicVendor = {
   also_buying: boolean;
   payment_methods: string[];
   date_joined: string;
+  admin_tier: string | null;
+};
+
+const TIER_LABELS: Record<string, string> = {
+  premium: "Premium",
+  standard: "Standard",
+  basic: "Basic",
 };
 
 type Listing = {
@@ -67,6 +75,7 @@ function toInventoryItem(listing: Listing): InventoryItem {
 
 export default function PublicVendorProfilePage() {
   const { vendorId } = useParams<{ vendorId: string }>();
+  const { user } = useAuth();
   const { labelFor } = useCategories();
   const [vendor, setVendor] = useState<PublicVendor | null>(null);
   const [listings, setListings] = useState<Listing[]>([]);
@@ -78,7 +87,7 @@ export default function PublicVendorProfilePage() {
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      apiFetch<PublicVendor>(`/vendors/${vendorId}/`),
+      apiFetch<PublicVendor>(`/vendors/${vendorId}/`, { accessToken: getAccessToken() ?? undefined }),
       CARDS_FEATURE_ENABLED
         ? apiFetch<PaginatedResponse<Listing>>(`/vendors/${vendorId}/listings/?page_size=100`)
         : Promise.resolve({ count: 0, next: null, previous: null, results: [] } as PaginatedResponse<Listing>),
@@ -174,11 +183,11 @@ export default function PublicVendorProfilePage() {
       </div>
 
       <div className="mx-auto max-w-6xl px-6">
-        <div className="flex flex-wrap items-end gap-4 pt-6">
+        <div className="flex flex-col items-start gap-4 pt-6 sm:flex-row sm:items-end">
           {/* Avatar — same colored-initials treatment as the header's
               profile chip (components/NavBar.tsx), just larger. */}
           <div
-            className={`flex h-24 w-24 shrink-0 items-center justify-center rounded-full border-4 border-white text-2xl font-semibold text-white shadow-md dark:border-gray-950 sm:h-28 sm:w-28 ${theme.avatarClassName}`}
+            className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-4 border-white text-2xl font-semibold text-white shadow-md dark:border-gray-950 sm:h-28 sm:w-28 ${theme.avatarClassName}`}
           >
             {vendor.avatar_image_url ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -193,7 +202,16 @@ export default function PublicVendorProfilePage() {
           </div>
 
           <div className="min-w-0 flex-1 pb-1">
-            <h1 className="text-3xl font-bold tracking-tight">{vendor.business_name}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="break-words text-2xl font-bold tracking-tight sm:text-3xl">
+                {vendor.business_name}
+              </h1>
+              {user?.role === "admin" && vendor.admin_tier && (
+                <span className="whitespace-nowrap rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                  Admin view: {TIER_LABELS[vendor.admin_tier] ?? vendor.admin_tier}
+                </span>
+              )}
+            </div>
             {vendor.tagline && (
               <p className="mt-0.5 text-gray-600 italic dark:text-gray-300">{vendor.tagline}</p>
             )}

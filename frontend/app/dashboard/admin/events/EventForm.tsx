@@ -5,19 +5,14 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { getApiErrorMessage, apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
-import { toDatetimeLocalValue, type VendorDetail, type VenueDetail } from "@/lib/events";
-import type { Venue } from "@/lib/floorMap";
-
-type VendorSearchResult = { pk: number; email: string; business_name: string };
+import { toDatetimeLocalValue, type VenueDetail } from "@/lib/events";
+import { formatVenueAddress, type Venue } from "@/lib/floorMap";
 
 export type EventFormPayload = {
   name: string;
   description: string;
   start_date: string;
   end_date: string | null;
-  estimated_cards: number;
-  estimated_attendees: number;
-  vendors: number[];
   map_venue: number;
   announcement: string;
   notes: string;
@@ -29,9 +24,6 @@ export type EventFormInitialValues = {
   description: string;
   start_date: string;
   end_date: string | null;
-  estimated_cards: number;
-  estimated_attendees: number;
-  vendors_detail: VendorDetail[];
   map_venue: number | null;
   map_venue_detail: VenueDetail | null;
   announcement?: string;
@@ -54,13 +46,6 @@ export function EventForm({
   const [description, setDescription] = useState(initialValues?.description ?? "");
   const [startDate, setStartDate] = useState(initialValues?.start_date ?? "");
   const [endDate, setEndDate] = useState(initialValues?.end_date ?? "");
-  const [estimatedCards, setEstimatedCards] = useState(String(initialValues?.estimated_cards ?? 0));
-  const [estimatedAttendees, setEstimatedAttendees] = useState(
-    String(initialValues?.estimated_attendees ?? 0),
-  );
-  const [selectedVendors, setSelectedVendors] = useState<VendorDetail[]>(
-    initialValues?.vendors_detail ?? [],
-  );
   const [selectedVenue, setSelectedVenue] = useState<VenueDetail | null>(
     initialValues?.map_venue_detail ?? null,
   );
@@ -71,8 +56,6 @@ export function EventForm({
   );
   const [venueSearch, setVenueSearch] = useState("");
   const [venueResults, setVenueResults] = useState<Venue[]>([]);
-  const [vendorSearch, setVendorSearch] = useState("");
-  const [vendorResults, setVendorResults] = useState<VendorSearchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -96,39 +79,6 @@ export function EventForm({
     };
   }, [venueSearch]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const timeout = setTimeout(() => {
-      if (cancelled) return;
-      if (!vendorSearch) {
-        setVendorResults([]);
-        return;
-      }
-      apiFetch<{ results: VendorSearchResult[] }>(
-        `/admin/users/?role=vendor&search=${encodeURIComponent(vendorSearch)}`,
-        { accessToken: getAccessToken() ?? undefined },
-      ).then((data) => {
-        if (!cancelled) setVendorResults(data.results);
-      });
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(timeout);
-    };
-  }, [vendorSearch]);
-
-  function addVendor(vendor: VendorSearchResult) {
-    setSelectedVendors((current) =>
-      current.some((v) => v.pk === vendor.pk)
-        ? current
-        : [...current, { pk: vendor.pk, label: vendor.business_name || vendor.email }],
-    );
-  }
-
-  function removeVendor(pk: number) {
-    setSelectedVendors((current) => current.filter((v) => v.pk !== pk));
-  }
-
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!selectedVenue) {
@@ -143,9 +93,6 @@ export function EventForm({
         description,
         start_date: startDate,
         end_date: endDate || null,
-        estimated_cards: Number(estimatedCards) || 0,
-        estimated_attendees: Number(estimatedAttendees) || 0,
-        vendors: selectedVendors.map((v) => v.pk),
         map_venue: selectedVenue.pk,
         announcement,
         notes,
@@ -210,7 +157,7 @@ export function EventForm({
                   >
                     <span>
                       {venue.name}
-                      {venue.city ? ` — ${venue.city}` : ""}
+                      {formatVenueAddress(venue) ? ` — ${formatVenueAddress(venue)}` : ""}
                     </span>
                     <span className="text-xs text-brand-blue">Select</span>
                   </button>
@@ -317,81 +264,6 @@ export function EventForm({
           />
         </div>
       )}
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label htmlFor="estimated_cards" className="block text-sm font-medium">
-            Estimated cards
-          </label>
-          <input
-            id="estimated_cards"
-            type="number"
-            min="0"
-            value={estimatedCards}
-            onChange={(e) => setEstimatedCards(e.target.value)}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-          />
-        </div>
-        <div>
-          <label htmlFor="estimated_attendees" className="block text-sm font-medium">
-            Estimated attendees
-          </label>
-          <input
-            id="estimated_attendees"
-            type="number"
-            min="0"
-            value={estimatedAttendees}
-            onChange={(e) => setEstimatedAttendees(e.target.value)}
-            className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-          />
-        </div>
-      </div>
-
-      <div>
-        <span className="block text-sm font-medium">Vendors attending</span>
-        <input
-          type="text"
-          value={vendorSearch}
-          onChange={(e) => setVendorSearch(e.target.value)}
-          placeholder="Search vendors by email..."
-          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-        />
-        {vendorResults.length > 0 && (
-          <div className="mt-2 divide-y divide-gray-100 rounded-md border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
-            {vendorResults.map((vendor) => (
-              <button
-                type="button"
-                key={vendor.pk}
-                onClick={() => addVendor(vendor)}
-                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-900"
-              >
-                <span>{vendor.business_name || vendor.email}</span>
-                <span className="text-xs text-brand-blue">Add</span>
-              </button>
-            ))}
-          </div>
-        )}
-        {selectedVendors.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {selectedVendors.map((vendor) => (
-              <span
-                key={vendor.pk}
-                className="flex items-center gap-1.5 rounded-full bg-gray-100 py-1 pl-3 pr-1.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-              >
-                {vendor.label}
-                <button
-                  type="button"
-                  onClick={() => removeVendor(vendor.pk)}
-                  aria-label={`Remove ${vendor.label}`}
-                  className="rounded-full px-1 hover:bg-gray-200 dark:hover:bg-gray-700"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 

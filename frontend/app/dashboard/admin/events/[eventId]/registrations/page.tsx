@@ -330,7 +330,11 @@ export default function EventRegistrationsPage() {
                 Available
               </span>
             </div>
-            <div className="relative w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+            {/* min-w keeps booth labels at a legible pixel size on phones —
+                overflow-x-auto lets the map scroll horizontally there
+                instead of shrinking the text past reading size. */}
+            <div className="overflow-x-auto">
+            <div className="relative w-full min-w-[1200px] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={mapImageUrl} alt="Venue floor plan" className="block w-full" />
               {venueMap.sections.map((section) => (
@@ -365,6 +369,7 @@ export default function EventRegistrationsPage() {
                   </div>
                 );
               })}
+            </div>
             </div>
           </section>
         )}

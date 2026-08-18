@@ -290,6 +290,20 @@ class AdminGlobalNoteLogSerializer(serializers.ModelSerializer):
         return None
 
 
+class AdminUserSerializer(UserDetailsSerializer):
+    """
+    Admin-only view of a user, adding `vendor_tier` on top of
+    UserDetailsSerializer. Only used by views already gated on IsAdminRole
+    (AdminUserSearchView, AdminUserDetailView) — never by a vendor's own
+    /auth/user/ endpoint, so a vendor can never see their own tier. Tier can
+    only be changed via SetVendorTierView, not through this serializer.
+    """
+
+    class Meta(UserDetailsSerializer.Meta):
+        fields = UserDetailsSerializer.Meta.fields + ("vendor_tier",)
+        read_only_fields = UserDetailsSerializer.Meta.read_only_fields + ("vendor_tier",)
+
+
 class AdminUserDetailSerializer(serializers.ModelSerializer):
 
 
@@ -342,6 +356,18 @@ class AdminUserDetailSerializer(serializers.ModelSerializer):
                 "A user is already registered with this email address."
             )
         return value
+
+    def validate_category_tags(self, value):
+        return _validate_category_tags(value)
+
+    def validate(self, attrs):
+        if (
+            self.instance.role == User.Role.VENDOR
+            and "business_name" in attrs
+            and not attrs["business_name"]
+        ):
+            raise serializers.ValidationError({"business_name": "Business name can't be blank."})
+        return attrs
 
     def update(self, instance, validated_data):
         old_notes = instance.notes
@@ -556,6 +582,12 @@ class PublicVendorSerializer(serializers.ModelSerializer):
     and the events list all read straight off this).
     """
 
+    # Only populated when the requesting user is an admin — lets the admin
+    # Vendor Tiers tool link straight through to this same public page and
+    # show a small "admin view" tier tag, without ever exposing tier to the
+    # vendor themselves or the general public hitting this same endpoint.
+    admin_tier = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = (
@@ -568,7 +600,15 @@ class PublicVendorSerializer(serializers.ModelSerializer):
             "avatar_image_url",
             "profile_theme",
             "date_joined",
+            "admin_tier",
         ) + SOCIAL_LINK_FIELDS + VENDOR_DETAIL_FIELDS
+
+    def get_admin_tier(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and user.is_authenticated and user.role == User.Role.ADMIN:
+            return obj.vendor_tier
+        return None
 
 
 class AdminCreateUserSerializer(SocialLinksMixin, serializers.ModelSerializer):

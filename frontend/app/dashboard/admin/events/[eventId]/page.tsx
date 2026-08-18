@@ -462,6 +462,30 @@ export default function EditEventPage() {
               onSubmit={handleSubmit}
             />
           </section>
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold">Edit Event</h1>
+          <Link
+            href={`/dashboard/admin/events/${event.id}/vendors`}
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+          >
+            View attending vendors ({event.vendor_count})
+          </Link>
+        </div>
+        <EventForm
+          submitLabel="Save changes"
+          initialValues={{
+            name: event.name,
+            description: event.description,
+            start_date: event.start_date,
+            end_date: event.end_date,
+            map_venue: event.map_venue,
+            map_venue_detail: event.map_venue_detail,
+            announcement: event.announcement ?? "",
+            notes: event.notes ?? "",
+            registration_deadline: event.registration_deadline,
+          }}
+          onSubmit={handleSubmit}
+        />
 
           <aside className="space-y-4">
             <EventNotePanel eventId={event.id} />

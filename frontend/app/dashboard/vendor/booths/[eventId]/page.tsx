@@ -173,7 +173,12 @@ export default function VendorBoothSelectionPage() {
             No floor plan has been set up for this event yet.
           </p>
         ) : (
-          <div className="relative w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
+          // min-w keeps booth numbers at a legible pixel size on phones —
+          // overflow-x-auto lets the map scroll horizontally there instead
+          // of shrinking the text past reading size (matches the public
+          // map page's FloorMapCanvas treatment).
+          <div className="overflow-x-auto">
+          <div className="relative w-full min-w-[1200px] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={displayImageUrl} alt="Event floor plan" className="block w-full" />
 
@@ -213,6 +218,7 @@ export default function VendorBoothSelectionPage() {
                 </span>
               </button>
             ))}
+          </div>
           </div>
         )}
 

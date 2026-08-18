@@ -39,7 +39,13 @@ class EventApiTests(APITestCase):
         self.vendor.business_name = "Vendor Co"
         self.vendor.save()
 
-        self.venue = Venue.objects.create(name="Test Venue", city="Test City")
+        self.venue = Venue.objects.create(
+            name="Test Venue",
+            address_line1="123 Main St",
+            city="Test City",
+            state="CA",
+            zip_code="90210",
+        )
 
         today = datetime.date.today()
         self.upcoming = Event.objects.create(
@@ -47,16 +53,12 @@ class EventApiTests(APITestCase):
             venue="Some Hall",
             city="Some City",
             start_date=today + datetime.timedelta(days=10),
-            estimated_cards=1000,
-            estimated_attendees=200,
         )
         self.past = Event.objects.create(
             name="Past Show",
             venue="Old Hall",
             city="Old City",
             start_date=today - datetime.timedelta(days=10),
-            estimated_cards=2000,
-            estimated_attendees=400,
         )
 
     def access_for(self, email, password="s3cret!23"):
@@ -213,8 +215,6 @@ class EventApiTests(APITestCase):
                 "start_date": "2027-01-01",
                 "end_date": "2027-01-02",
                 "description": "A new show",
-                "estimated_cards": 5000,
-                "estimated_attendees": 1000,
                 "vendors": [self.vendor.pk],
             },
             format="json",
@@ -249,8 +249,9 @@ class EventApiTests(APITestCase):
         )
 
     def test_create_derives_venue_and_city_from_map_venue(self):
-        # venue/city are read-only — a client-supplied value is ignored in
-        # favor of whatever the selected Venue's own name/city are.
+        # venue/address/city/state/zip are read-only — a client-supplied
+        # value is ignored in favor of whatever the selected Venue's own
+        # fields are.
         access = self.access_for("events-admin@example.com")
         response = self.client.post(
             "/api/v1/events/",
@@ -259,6 +260,8 @@ class EventApiTests(APITestCase):
                 "map_venue": self.venue.pk,
                 "venue": "Should be ignored",
                 "city": "Should be ignored",
+                "state": "NY",
+                "zip_code": "00000",
                 "start_date": "2027-01-01",
             },
             format="json",
@@ -266,7 +269,10 @@ class EventApiTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["venue"], "Test Venue")
+        self.assertEqual(response.data["address_line1"], "123 Main St")
         self.assertEqual(response.data["city"], "Test City")
+        self.assertEqual(response.data["state"], "CA")
+        self.assertEqual(response.data["zip_code"], "90210")
 
     def test_admin_can_duplicate_event(self):
         self.upcoming.vendors.add(self.vendor)
@@ -332,7 +338,7 @@ class EventApiTests(APITestCase):
         access = self.access_for("events-cust@example.com")
         response = self.client.patch(
             f"/api/v1/events/{self.upcoming.pk}/",
-            {"estimated_attendees": 9999},
+            {"name": "Hacked Show"},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
@@ -344,7 +350,6 @@ class EventApiTests(APITestCase):
             f"/api/v1/events/{self.upcoming.pk}/",
             {
                 "name": "Renamed Show",
-                "estimated_attendees": 9999,
                 "vendors": [self.vendor.pk],
             },
             format="json",
@@ -352,7 +357,6 @@ class EventApiTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["name"], "Renamed Show")
-        self.assertEqual(response.data["estimated_attendees"], 9999)
         # vendor_count no longer reflects the manual `vendors` field — see
         # test_vendor_count_and_detail_reflect_confirmed_booth_registrations.
         self.assertEqual(response.data["vendor_count"], 0)
@@ -362,13 +366,13 @@ class EventApiTests(APITestCase):
         access = self.access_for("events-admin@example.com")
         response = self.client.patch(
             f"/api/v1/events/{self.past.pk}/",
-            {"estimated_attendees": 4242},
+            {"name": "Renamed Past Show"},
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["status"], "past")
-        self.assertEqual(response.data["estimated_attendees"], 4242)
+        self.assertEqual(response.data["name"], "Renamed Past Show")
 
     def test_search_matches_name_venue_or_city(self):
         by_name = self.client.get("/api/v1/events/?search=Upcoming Show").data["results"]

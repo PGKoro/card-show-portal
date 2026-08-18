@@ -78,6 +78,11 @@ class User(AbstractUser):
         CASHAPP = "cashapp", "Cash App"
         ZELLE = "zelle", "Zelle"
 
+    class VendorTier(models.TextChoices):
+        PREMIUM = "premium", "Premium"
+        STANDARD = "standard", "Standard"
+        BASIC = "basic", "Basic"
+
     username = None
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.CUSTOMER)
@@ -135,6 +140,15 @@ class User(AbstractUser):
     # for customers/admins, who never need approval.
     vendor_status = models.CharField(
         max_length=20, choices=VendorStatus.choices, null=True, blank=True
+    )
+
+    # Only meaningful when role=vendor. Deliberately never exposed to the
+    # vendor themselves (see UserDetailsSerializer/ProfileSerializer, which
+    # both omit it) — only admin-facing serializers/endpoints touch this
+    # field, and it can only be changed via SetVendorTierView (the Vendor
+    # Tiers admin tool), never through a vendor's own profile edit.
+    vendor_tier = models.CharField(
+        max_length=20, choices=VendorTier.choices, default=VendorTier.BASIC
     )
 
     # Admin-driven "soft disable" — deliberately separate from is_active

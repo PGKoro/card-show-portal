@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
-import { formatEventDateRange, type ShowEvent } from "@/lib/events";
+import { formatEventAddress, formatEventDateRange, type ShowEvent } from "@/lib/events";
 
 export default function VendorBoothsIndexPage() {
   const [events, setEvents] = useState<ShowEvent[]>([]);
@@ -63,7 +63,8 @@ export default function VendorBoothsIndexPage() {
                 <div>
                   <p className="font-medium">{event.name}</p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {formatEventDateRange(event)} · {event.venue}, {event.city}
+                    {formatEventDateRange(event)} · {event.venue}
+                    {formatEventAddress(event) ? `, ${formatEventAddress(event)}` : ""}
                   </p>
                 </div>
                 <span className="text-sm font-medium text-brand-blue">

@@ -32,6 +32,7 @@ from apps.users.views import (
     RejectVendorView,
     RestoreUserView,
     SetUserRoleView,
+    SetVendorTierView,
     ThrottledLoginView,
     ThrottledPasswordResetView,
     ThrottledRegisterView,
@@ -130,6 +131,11 @@ urlpatterns = [
         "api/v1/admin/users/<int:pk>/set-role/",
         SetUserRoleView.as_view(),
         name="set-user-role",
+    ),
+    path(
+        "api/v1/admin/users/<int:pk>/set-tier/",
+        SetVendorTierView.as_view(),
+        name="set-vendor-tier",
     ),
     path(
         "api/v1/admin/users/<int:pk>/archive/",
