@@ -76,10 +76,10 @@ export function NavBar() {
     >
       <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-blue text-xs font-semibold text-white">
         {initials}
-        {user.role === "admin" && (
+        {(user.role === "admin" || user.role === "owner") && (
           <span
-            title="Admin"
-            aria-label="Admin"
+            title={user.role === "owner" ? "Owner" : "Admin"}
+            aria-label={user.role === "owner" ? "Owner" : "Admin"}
             className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 ring-2 ring-white"
           >
             <svg viewBox="0 0 20 20" className="h-2.5 w-2.5 fill-white" aria-hidden="true">
@@ -118,30 +118,6 @@ export function NavBar() {
 
         <div className="hidden items-center gap-3 md:flex">
           {isLoading ? null : user ? (
-            <Link
-              href={dashboardPathForRole(user.role)}
-              className="flex items-center gap-2 hover:opacity-80"
-            >
-              <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-brand-blue text-xs font-semibold text-white">
-                {initials}
-                {(user.role === "admin" || user.role === "owner") && (
-                  <span
-                    title={user.role === "owner" ? "Owner" : "Admin"}
-                    aria-label={user.role === "owner" ? "Owner" : "Admin"}
-                    className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 ring-2 ring-white"
-                  >
-                    <svg viewBox="0 0 20 20" className="h-2.5 w-2.5 fill-white" aria-hidden="true">
-                      <path d="M10 1.5l6.5 2.6v4.4c0 4.4-2.8 8.3-6.5 9.8-3.7-1.5-6.5-5.4-6.5-9.8V4.1L10 1.5z" />
-                    </svg>
-                  </span>
-                )}
-              </span>
-              <span className="text-sm font-medium text-gray-700">
-                {user.role === "vendor" && user.business_name
-                  ? user.business_name
-                  : user.first_name || user.email}
-              </span>
-            </Link>
             profileChip
           ) : (
             <>

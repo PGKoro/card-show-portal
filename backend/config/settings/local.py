@@ -11,7 +11,7 @@ if "test" in sys.argv:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "test.sqlite3",
+            "NAME": BASE_DIR / "test.sqlite3",  # noqa: F405
         }
     }
 

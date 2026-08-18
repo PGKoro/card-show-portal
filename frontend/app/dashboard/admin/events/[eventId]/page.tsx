@@ -66,8 +66,20 @@ function EventNotePanel({ eventId }: { eventId: number }) {
   }
 
   useEffect(() => {
-    setLoading(true);
-    void loadHistory();
+    let cancelled = false;
+
+    async function run() {
+      setLoading(true);
+      await loadHistory(page);
+      if (!cancelled) setLoading(false);
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId, page]);
 
   async function postNote(event: FormEvent) {

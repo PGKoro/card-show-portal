@@ -32,8 +32,6 @@ class AdminNoteChange(models.Model):
         return f"{self.target_type}:{self.target_id} note change"
 
 
-
-
 class User(AbstractUser):
     """
     Custom user model identified by email instead of username.

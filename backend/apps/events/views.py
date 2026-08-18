@@ -285,8 +285,6 @@ class EventNoteDetailView(APIView):
 
 
 class EventDuplicateView(APIView):
-
-
     def post(self, request, pk):
         event = get_object_or_404(Event, pk=pk)
         duplicate = Event.objects.create(
@@ -308,7 +306,10 @@ class EventDuplicateView(APIView):
             registration_deadline=event.registration_deadline,
         )
         duplicate.vendors.set(event.vendors.all())
-        return Response(EventSerializer(duplicate, context={"request": request}).data, status=status.HTTP_201_CREATED)
+        return Response(
+            EventSerializer(duplicate, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class EventMapView(APIView):

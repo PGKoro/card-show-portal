@@ -26,7 +26,6 @@ from .serializers import (
     AdminAccountNoteLogSerializer,
     AdminCreateUserSerializer,
     AdminGlobalNoteLogSerializer,
-    AdminNoteChangeSerializer,
     AdminUserDetailSerializer,
     AdminUserNoteCreateSerializer,
     AdminUserSerializer,
@@ -220,7 +219,12 @@ class ArchiveUserView(APIView):
             archived = bool(archived)
         if archived and is_last_active_owner(user):
             return Response(
-                {"detail": "Can't archive the last owner account — promote another account to owner first."},
+                {
+                    "detail": (
+                        "Can't archive the last owner account — promote "
+                        "another account to owner first."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         user.archived = archived
@@ -328,12 +332,22 @@ class SetUserRoleView(APIView):
             and not (request.user.is_superuser or request.user.role == User.Role.OWNER)
         ):
             return Response(
-                {"detail": "Only an owner can change another admin's role, or promote someone to admin/owner."},
+                {
+                    "detail": (
+                        "Only an owner can change another admin's role, "
+                        "or promote someone to admin/owner."
+                    )
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
         if new_role != User.Role.OWNER and is_last_active_owner(user):
             return Response(
-                {"detail": "Can't change the last owner's role — promote another account to owner first."},
+                {
+                    "detail": (
+                        "Can't change the last owner's role — promote "
+                        "another account to owner first."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -650,6 +664,8 @@ class AdminUserImpersonateView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
 class SetVendorTierView(APIView):
     """
     POST /api/v1/admin/users/<id>/set-tier/ with {"tier": "premium" |

@@ -281,7 +281,8 @@ class AdminGlobalNoteLogSerializer(serializers.ModelSerializer):
                 return getattr(user, "get_full_name", lambda: "")() or user.email
             return "Deleted account"
         if obj.target_type == AdminNoteChange.TARGET_EVENT:
-            from apps.events.models import Event  # local import avoids a circular import with apps.events
+            # Local import avoids a circular import with apps.events.
+            from apps.events.models import Event
 
             event = Event.objects.filter(pk=obj.target_id).first()
             if event:
@@ -305,8 +306,6 @@ class AdminUserSerializer(UserDetailsSerializer):
 
 
 class AdminUserDetailSerializer(serializers.ModelSerializer):
-
-
     category_tags = serializers.ListField(child=serializers.CharField(), required=False)
     payment_methods = serializers.ListField(child=serializers.CharField(), required=False)
 

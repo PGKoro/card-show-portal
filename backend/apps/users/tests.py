@@ -978,6 +978,7 @@ class AdminUserDetailTests(APITestCase):
         self.assertGreaterEqual(len(history.data), 1)
         self.assertEqual(history.data[0]["admin"], "admin4@example.com")
         self.assertEqual(history.data[0]["note"], "Updated note")
+
     def test_editing_rejects_duplicate_email(self):
         User.objects.create_user(email="taken@example.com", password="s3cret!23")
         response = self.client.patch(
