@@ -92,6 +92,18 @@ const ADMIN_SECTIONS: { title: string; tools: AdminTool[] }[] = [
         description: "Add, remove, and reorder the card categories used across the site.",
         countKey: null,
       },
+      {
+        href: "/dashboard/admin/manage-website",
+        title: "Manage Website",
+        description: "Control the homepage carousel and the public Articles nav tab.",
+        countKey: null,
+      },
+      {
+        href: "/dashboard/admin/articles",
+        title: "Article Creator",
+        description: "Write, edit, publish, and archive articles for the public Articles page.",
+        countKey: null,
+      },
     ],
   },
 ];

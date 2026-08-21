@@ -8,6 +8,7 @@ import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { NavBar } from "@/components/NavBar";
 import { AuthProvider } from "@/lib/AuthContext";
 import { CategoriesProvider } from "@/lib/CategoriesContext";
+import { SiteSettingsProvider } from "@/lib/SiteSettingsContext";
 
 import "./globals.css";
 
@@ -39,12 +40,14 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <AuthProvider>
           <CategoriesProvider>
-            <ConfirmDialogProvider>
-              <ImpersonationBanner />
-              <NavBar />
-              <ArchivedAccountGuard>{children}</ArchivedAccountGuard>
-              <Footer />
-            </ConfirmDialogProvider>
+            <SiteSettingsProvider>
+              <ConfirmDialogProvider>
+                <ImpersonationBanner />
+                <NavBar />
+                <ArchivedAccountGuard>{children}</ArchivedAccountGuard>
+                <Footer />
+              </ConfirmDialogProvider>
+            </SiteSettingsProvider>
           </CategoriesProvider>
         </AuthProvider>
       </body>

@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "apps.core",
     "apps.listings",
     "apps.events",
+    "apps.articles",
 ]
 
 MIDDLEWARE = [

@@ -7,15 +7,9 @@ import { useState } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { dashboardPathForRole } from "@/lib/auth";
 import { CARDS_FEATURE_ENABLED, SET_REGISTRY_FEATURE_ENABLED } from "@/lib/features";
+import { useSiteSettings } from "@/lib/SiteSettingsContext";
 
 const HEADER_HIDDEN_ON = ["/login", "/signup"];
-
-const NAV_LINKS = [
-  { href: "/vendors", label: "Browse Vendors", enabled: true },
-  { href: "/cards", label: "Browse Cards", enabled: CARDS_FEATURE_ENABLED },
-  { href: "/events", label: "Browse Events", enabled: true },
-  { href: "/set-registry", label: "Set Registry", enabled: SET_REGISTRY_FEATURE_ENABLED },
-].filter((link) => link.enabled);
 
 // Rendered once from the root layout so every page — landing, browse, and
 // all three dashboards — shares the same header. Reflects real auth state
@@ -33,6 +27,7 @@ const NAV_LINKS = [
 export function NavBar() {
   const pathname = usePathname();
   const { user, isLoading } = useAuth();
+  const { settings } = useSiteSettings();
   const [mobileOpen, setMobileOpen] = useState(false);
   // Any client-side navigation should close an open mobile menu — otherwise
   // it stays open floating over the next page. Reset during render (rather
@@ -44,6 +39,18 @@ export function NavBar() {
     setLastPathname(pathname);
     setMobileOpen(false);
   }
+
+  // Computed per-render (not a module constant) since the Articles entry
+  // now depends on live SiteSettings state — Manage Website's ON/OFF
+  // toggle needs to take effect without a rebuild/redeploy.
+  const navLinks = [
+    { href: "/vendors", label: "Browse Vendors", enabled: true },
+    { href: "/cards", label: "Browse Cards", enabled: CARDS_FEATURE_ENABLED },
+    { href: "/events", label: "Browse Events", enabled: true },
+    { href: "/articles", label: "Articles", enabled: settings?.articles_tab_enabled ?? true },
+    { href: "/set-registry", label: "Set Registry", enabled: SET_REGISTRY_FEATURE_ENABLED },
+  ].filter((link) => link.enabled);
+
 
   if (HEADER_HIDDEN_ON.includes(pathname) || pathname.startsWith("/onboarding")) {
     return null;
@@ -108,7 +115,7 @@ export function NavBar() {
           </Link>
 
           <div className="hidden items-center gap-6 text-sm font-medium text-gray-600 md:flex">
-            {NAV_LINKS.map((link) => (
+            {navLinks.map((link) => (
               <Link key={link.href} href={link.href} className="hover:text-gray-900">
                 {link.label}
               </Link>
@@ -159,7 +166,7 @@ export function NavBar() {
       {mobileOpen && (
         <div className="border-t border-gray-200 bg-white px-4 pb-4 pt-2 md:hidden">
           <div className="flex flex-col gap-1 text-sm font-medium text-gray-600">
-            {NAV_LINKS.map((link) => (
+            {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
