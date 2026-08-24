@@ -162,7 +162,11 @@ export function ArticleEditor({
       summary: summary.trim(),
       author_name: authorName.trim(),
       tags,
-      body: blocks.map(({ key: _key, ...block }) => block) as ArticleBodyBlock[],
+      body: blocks.map((block) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { key, ...rest } = block;
+        return rest;
+      }) as ArticleBodyBlock[],
     };
   }
 
