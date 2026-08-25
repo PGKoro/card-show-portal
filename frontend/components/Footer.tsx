@@ -1,9 +1,15 @@
+"use client";
+
 import Link from "next/link";
 
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import { CARDS_FEATURE_ENABLED } from "@/lib/features";
+import { useSiteSettings } from "@/lib/SiteSettingsContext";
 
 export function Footer() {
+  const { settings } = useSiteSettings();
+  const articlesTabEnabled = settings?.articles_tab_enabled ?? true;
+
   return (
     <footer className="bg-brand-navy text-gray-300">
       <div className="mx-auto max-w-7xl px-6 py-12">
@@ -36,6 +42,13 @@ export function Footer() {
                   Browse Events
                 </Link>
               </li>
+              {articlesTabEnabled && (
+                <li>
+                  <Link href="/articles" className="hover:text-white">
+                    Articles
+                  </Link>
+                </li>
+              )}
               <li>
                 <Link href="/dashboard" className="hover:text-white">
                   My Account

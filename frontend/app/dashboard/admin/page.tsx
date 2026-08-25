@@ -9,6 +9,7 @@ import { getAccessToken } from "@/lib/auth";
 
 type CountKey = "vendorApprovals" | "boothRequests";
 
+
 type AdminTool = {
   href: string;
   title: string;
@@ -69,6 +70,12 @@ const ADMIN_SECTIONS: { title: string; tools: AdminTool[] }[] = [
         countKey: null,
       },
       {
+        href: "/dashboard/admin/notes-history",
+        title: "Admin Note History",
+        description: "Review who changed account notes and when.",
+        countKey: null,
+      },
+      {
         href: "/dashboard/admin/vendor-tiers",
         title: "Vendor Tiers",
         description: "Assign vendors to Premium, Standard, or Basic.",
@@ -83,6 +90,18 @@ const ADMIN_SECTIONS: { title: string; tools: AdminTool[] }[] = [
         href: "/dashboard/admin/categories",
         title: "Manage Categories",
         description: "Add, remove, and reorder the card categories used across the site.",
+        countKey: null,
+      },
+      {
+        href: "/dashboard/admin/manage-website",
+        title: "Manage Website",
+        description: "Control the homepage carousel and the public Articles nav tab.",
+        countKey: null,
+      },
+      {
+        href: "/dashboard/admin/articles",
+        title: "Article Creator",
+        description: "Write, edit, publish, and archive articles for the public Articles page.",
         countKey: null,
       },
     ],

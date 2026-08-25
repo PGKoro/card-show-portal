@@ -15,7 +15,13 @@ import type { ShowEvent } from "@/lib/events";
 import { CARDS_FEATURE_ENABLED } from "@/lib/features";
 import { type GradingCompany, type InventoryItem } from "@/lib/mockData";
 
-const HERO_IMAGES = ["/cardshow1.webp", "/cardshow2.avif", "/cardshow3.jpeg"];
+type CarouselSlideResponse = {
+  id: number;
+  image: string | null;
+  caption: string;
+  alt_text: string;
+  link_url: string;
+};
 
 type PublicListing = {
   id: number;
@@ -48,6 +54,7 @@ export default function HomePage() {
   const [featuredVendors, setFeaturedVendors] = useState<PublicVendor[]>([]);
   const [recentListings, setRecentListings] = useState<PublicListing[]>([]);
   const [events, setEvents] = useState<ShowEvent[]>([]);
+  const [heroSlides, setHeroSlides] = useState<HeroSlide[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -58,12 +65,24 @@ export default function HomePage() {
       CARDS_FEATURE_ENABLED
         ? apiFetch<PaginatedResponse<PublicListing>>("/listings/public/?page_size=10")
         : Promise.resolve({ count: 0, next: null, previous: null, results: [] } as PaginatedResponse<PublicListing>),
+      apiFetch<CarouselSlideResponse[]>("/home-carousel/").catch(() => [] as CarouselSlideResponse[]),
     ])
-      .then(([eventsData, vendorsData, listingsData]) => {
+      .then(([eventsData, vendorsData, listingsData, carouselData]) => {
         if (cancelled) return;
         setEvents(eventsData.results);
         setFeaturedVendors(vendorsData.results);
         setRecentListings(listingsData.results);
+        setHeroSlides(
+          carouselData
+            .filter((slide) => !!slide.image)
+            .map((slide) => ({
+              id: slide.id,
+              image: slide.image as string,
+              alt: slide.alt_text,
+              caption: slide.caption,
+              linkUrl: slide.link_url,
+            })),
+        );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -79,11 +98,6 @@ export default function HomePage() {
   const pastShows = [...events]
     .filter((event) => event.status === "past")
     .sort((a, b) => b.start_date.localeCompare(a.start_date));
-
-  const heroSlides: HeroSlide[] = pastShows.map((show, i) => ({
-    show,
-    image: HERO_IMAGES[i % HERO_IMAGES.length],
-  }));
 
   return (
     <main className="flex-1">

@@ -1,7 +1,35 @@
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 from .managers import UserManager
+
+
+class AdminNoteChange(models.Model):
+    TARGET_USER = "user"
+    TARGET_EVENT = "event"
+    TARGET_CHOICES = ((TARGET_USER, "User"), (TARGET_EVENT, "Event"))
+
+    target_type = models.CharField(max_length=20, choices=TARGET_CHOICES)
+    target_id = models.PositiveIntegerField()
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="admin_note_changes",
+    )
+    old_text = models.TextField(blank=True, default="")
+    new_text = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = "users"
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["target_type", "target_id", "-created_at"])]
+
+    def __str__(self):
+        return f"{self.target_type}:{self.target_id} note change"
 
 
 class User(AbstractUser):
@@ -18,6 +46,11 @@ class User(AbstractUser):
         VENDOR = "vendor", "Vendor"
         CUSTOMER = "customer", "Customer"
         ADMIN = "admin", "Admin"
+        # "Admin for admins" — everything a regular admin can do, plus the
+        # ability to edit/archive/flag/delete/impersonate other admin (and
+        # owner) accounts, which regular admins are explicitly blocked from
+        # touching. See apps.core.permissions for the enforcement.
+        OWNER = "owner", "Owner"
 
     class VendorStatus(models.TextChoices):
         PENDING_REVIEW = "pending_review", "Pending review"

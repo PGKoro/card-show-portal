@@ -10,8 +10,13 @@ import { ApiError, apiFetch, getApiErrorMessage, type PaginatedResponse } from "
 import { getAccessToken } from "@/lib/auth";
 import { useAuth } from "@/lib/AuthContext";
 
-type Role = "customer" | "vendor" | "admin";
+type Role = "customer" | "vendor" | "admin" | "owner";
 type SearchRole = Role | "";
+type ArchiveFilter = "" | "archived" | "active";
+
+function isStaffRole(role: Role): boolean {
+  return role === "admin" || role === "owner";
+}
 
 type UserResult = {
   pk: number;
@@ -21,7 +26,7 @@ type UserResult = {
   role: Role;
   archived: boolean;
   flagged: boolean;
-  notes: string;
+  note_count: number;
 };
 
 type Feedback = { id: number; text: string };
@@ -33,6 +38,7 @@ export default function ManageAccountsPage() {
   const { user: currentUser } = useAuth();
   const [search, setSearch] = useState("");
   const [role, setRole] = useState<SearchRole>("");
+  const [archiveFilter, setArchiveFilter] = useState<ArchiveFilter>("");
   const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [results, setResults] = useState<UserResult[]>([]);
@@ -48,7 +54,9 @@ export default function ManageAccountsPage() {
     const timeout = setTimeout(() => {
       if (cancelled) return;
 
-      if (!search.trim() && !role && !flaggedOnly) {
+      const hasSearch = Boolean(search.trim());
+      const hasFilters = Boolean(role || archiveFilter || flaggedOnly);
+      if (!hasSearch && !hasFilters) {
         setResults([]);
         setHasNext(false);
         setHasPrevious(false);
@@ -58,8 +66,10 @@ export default function ManageAccountsPage() {
 
       setLoading(true);
       const params = new URLSearchParams();
-      if (search.trim()) params.set("search", search.trim());
+      if (hasSearch) params.set("search", search.trim());
       if (role) params.set("role", role);
+      if (archiveFilter === "archived") params.set("archived", "true");
+      if (archiveFilter === "active") params.set("archived", "false");
       if (flaggedOnly) params.set("flagged", "true");
       params.set("page_size", String(PAGE_SIZE));
       params.set("page", String(page));
@@ -90,7 +100,7 @@ export default function ManageAccountsPage() {
       cancelled = true;
       clearTimeout(timeout);
     };
-  }, [search, role, flaggedOnly, page]);
+  }, [search, role, archiveFilter, flaggedOnly, page]);
 
   function pushFeedback(text: string) {
     const note: Feedback = { id: nextFeedbackId.current++, text };
@@ -114,11 +124,13 @@ export default function ManageAccountsPage() {
 
     setUpdatingPk(user.pk);
     try {
-      const updated = await apiFetch<UserResult>(`/admin/users/${user.pk}/`, {
-        method: "PATCH",
-        accessToken: getAccessToken() ?? undefined,
-        body: { archived: archiving },
-      });
+      const updated = await apiFetch<UserResult>(
+        `/admin/users/${user.pk}/${archiving ? "archive" : "restore"}/`,
+        {
+          method: "POST",
+          accessToken: getAccessToken() ?? undefined,
+        },
+      );
       setResults((current) =>
         current.map((item) => (item.pk === user.pk ? { ...item, archived: updated.archived } : item)),
       );
@@ -159,6 +171,8 @@ export default function ManageAccountsPage() {
     }
   }
 
+  const activeFilters = Boolean(search.trim() || role || archiveFilter || flaggedOnly);
+
   return (
     <main className="flex-1 px-6 py-12">
       <div className="mx-auto max-w-3xl">
@@ -168,10 +182,10 @@ export default function ManageAccountsPage() {
 
         <h1 className="mb-1 text-2xl font-semibold">Manage Accounts</h1>
         <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
-          Search by role, name, email, or business name. Combine role + name for a narrower search.
+          Search by role, archive status, name, email, or business name.
         </p>
 
-        <div className="mb-4 grid gap-3 md:grid-cols-3">
+        <div className="mb-4 grid gap-3 md:grid-cols-4">
           <input
             type="text"
             value={search}
@@ -194,6 +208,19 @@ export default function ManageAccountsPage() {
             <option value="customer">Customer</option>
             <option value="vendor">Vendor</option>
             <option value="admin">Admin</option>
+            <option value="owner">Owner</option>
+          </select>
+          <select
+            value={archiveFilter}
+            onChange={(e) => {
+              setArchiveFilter(e.target.value as ArchiveFilter);
+              setPage(1);
+            }}
+            className="rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
+          >
+            <option value="">All accounts</option>
+            <option value="active">Active only</option>
+            <option value="archived">Archived only</option>
           </select>
           <label className="flex items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-700">
             <input
@@ -223,15 +250,15 @@ export default function ManageAccountsPage() {
           <Spinner />
         ) : results.length === 0 ? (
           <p className="rounded-md border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-            {search.trim() || role || flaggedOnly
-              ? "No matching users."
-              : "Search for a user by name or filter by role to manage their account."}
+            {activeFilters ? "No matching users." : "Search for a user to manage their account."}
           </p>
         ) : (
           <div className="space-y-3">
             {results.map((user) => {
               const isSelf = currentUser?.pk === user.pk;
-              const hasStickyNote = Boolean(user.notes?.trim());
+              const noteCount = user.note_count ?? 0;
+              const isOwnerViewer = currentUser?.role === "owner";
+              const isLockedStaffAccount = isStaffRole(user.role) && !isSelf && !isOwnerViewer;
               return (
                 <div
                   key={user.pk}
@@ -239,55 +266,62 @@ export default function ManageAccountsPage() {
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h2 className="font-semibold">{[user.first_name, user.last_name].filter(Boolean).join(" ") || user.email}</h2>
+                        {user.role === "owner" && (
+                          <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-semibold text-purple-800 dark:bg-purple-950 dark:text-purple-300">
+                            Owner
+                          </span>
+                        )}
                         {user.flagged && (
                           <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800 dark:bg-red-950 dark:text-red-300">
                             Flagged
                           </span>
                         )}
-                        {hasStickyNote && (
-                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                              🗒 Note
-                            </span>
-                          )}
+                        {noteCount > 0 && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                            <span aria-hidden="true">🗒</span>
+                            {noteCount}
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
                         {user.email} · <span className="capitalize">{user.role}</span>
                         {user.archived && " · Archived"}
                       </p>
-                      {hasStickyNote && (
-                        <p className="mt-2 max-w-xl rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
-                          {user.notes.slice(0, 120)}{user.notes.length > 120 ? "…" : ""}
-                        </p>
-                      )}
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Link
-                        href={`/dashboard/admin/manage-accounts/${user.pk}`}
-                        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
-                      >
-                        Manage
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleFlagged(user)}
-                        disabled={updatingPk === user.pk}
-                        className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
-                      >
-                        {user.flagged ? "Unflag" : "Flag"}
-                      </button>
-                      {isSelf ? (
-                        <p className="text-xs text-gray-400 dark:text-gray-500">You can&apos;t archive or delete your own account.</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isLockedStaffAccount ? (
+                        <p className="text-xs text-gray-400 dark:text-gray-500">Only an owner can manage admin accounts.</p>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleToggleArchived(user)}
-                          disabled={updatingPk === user.pk}
-                          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
-                        >
-                          {user.archived ? "Restore" : "Archive"}
-                        </button>
+                        <>
+                          <Link
+                            href={`/dashboard/admin/manage-accounts/${user.pk}`}
+                            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
+                          >
+                            Manage
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleFlagged(user)}
+                            disabled={updatingPk === user.pk}
+                            className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950"
+                          >
+                            {user.flagged ? "Unflag" : "Flag"}
+                          </button>
+                          {isSelf ? (
+                            <p className="text-xs text-gray-400 dark:text-gray-500">You can&apos;t archive or delete your own account.</p>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleArchived(user)}
+                              disabled={updatingPk === user.pk}
+                              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-900"
+                            >
+                              {user.archived ? "Restore" : "Archive"}
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

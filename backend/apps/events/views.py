@@ -2,14 +2,16 @@ from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import generics
+from rest_framework import generics, status
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsAdminRole, IsApprovedVendor
-from apps.users.models import User
+from apps.core.permissions import IsAdminRole, IsApprovedVendor, can_manage_note
+from apps.users.models import AdminNoteChange, User
 
 from .models import (
     MAP_IMAGE_PRESET_KEYS,
@@ -37,7 +39,9 @@ from .services import create_loyalty_holds
 
 
 def _is_admin(user):
-    return user.is_authenticated and (user.is_superuser or user.role == User.Role.ADMIN)
+    return user.is_authenticated and (
+        user.is_superuser or user.role in (User.Role.ADMIN, User.Role.OWNER)
+    )
 
 
 class EventListCreateView(generics.ListCreateAPIView):
@@ -138,6 +142,172 @@ class EventDetailView(generics.RetrieveUpdateDestroyAPIView):
         # every PATCH rather than trying to detect exactly which field
         # changed.
         create_loyalty_holds(event)
+
+
+class NoteHistoryPagination(PageNumberPagination):
+    page_size = 5
+    page_size_query_param = "page_size"
+    max_page_size = 50
+
+
+class EventNoteHistoryView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminRole]
+    pagination_class = NoteHistoryPagination
+
+    def _serialize_changes(self, changes):
+        return [
+            {
+                "id": change.id,
+                "event": change.target_id,
+                "admin": getattr(change.author, "get_full_name", lambda: "")()
+                or (change.author.email if change.author else None),
+                "author_id": change.author_id,
+                "note": change.new_text,
+                "created_at": change.created_at,
+            }
+            for change in changes
+        ]
+
+    def _get_changes_queryset(self, pk):
+        return AdminNoteChange.objects.filter(
+            target_type=AdminNoteChange.TARGET_EVENT,
+            target_id=pk,
+        )
+
+    def _get_paginated_response(self, request, pk):
+        paginator = self.pagination_class()
+        changes = self._get_changes_queryset(pk)
+        page = paginator.paginate_queryset(changes, request, view=self)
+        return paginator.get_paginated_response(self._serialize_changes(page))
+
+    def get(self, request, pk):
+        return self._get_paginated_response(request, pk)
+
+    def post(self, request, pk):
+        note = (request.data.get("note") or "").strip()
+        if not note:
+            return Response({"note": "Note can't be empty."}, status=status.HTTP_400_BAD_REQUEST)
+        event = get_object_or_404(Event, pk=pk)
+        previous = event.notes or ""
+        event.notes = note
+        event.save(update_fields=["notes"])
+        AdminNoteChange.objects.create(
+            target_type=AdminNoteChange.TARGET_EVENT,
+            target_id=event.pk,
+            author=request.user if request.user.is_authenticated else None,
+            old_text=previous,
+            new_text=note,
+        )
+        return self._get_paginated_response(request, pk)
+
+
+class EventNoteDetailView(APIView):
+    """
+    PATCH/DELETE a single event note. Same authoring rule as account
+    notes: an owner (or superuser) can manage any note, a plain admin can
+    only edit/delete a note they personally wrote (see can_manage_note).
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def _get_note(self, pk, note_id):
+        return get_object_or_404(
+            AdminNoteChange,
+            pk=note_id,
+            target_type=AdminNoteChange.TARGET_EVENT,
+            target_id=pk,
+        )
+
+    def _serialize_changes(self, changes):
+        return [
+            {
+                "id": change.id,
+                "event": change.target_id,
+                "admin": getattr(change.author, "get_full_name", lambda: "")()
+                or (change.author.email if change.author else None),
+                "author_id": change.author_id,
+                "note": change.new_text,
+                "created_at": change.created_at,
+            }
+            for change in changes
+        ]
+
+    def patch(self, request, pk, note_id):
+        note = self._get_note(pk, note_id)
+        if not can_manage_note(request.user, note):
+            raise PermissionDenied("You can only edit notes you posted yourself.")
+        new_text = (request.data.get("note") or "").strip()
+        if not new_text:
+            return Response({"note": "Note can't be empty."}, status=status.HTTP_400_BAD_REQUEST)
+        note.new_text = new_text
+        note.save(update_fields=["new_text"])
+
+        event = get_object_or_404(Event, pk=pk)
+        latest_note = (
+            AdminNoteChange.objects.filter(
+                target_type=AdminNoteChange.TARGET_EVENT,
+                target_id=pk,
+            )
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        if latest_note and latest_note.pk == note.pk:
+            event.notes = note.new_text
+            event.save(update_fields=["notes"])
+
+        changes = AdminNoteChange.objects.filter(
+            target_type=AdminNoteChange.TARGET_EVENT,
+            target_id=pk,
+        )
+        return Response(self._serialize_changes(changes))
+
+    def delete(self, request, pk, note_id):
+        event = get_object_or_404(Event, pk=pk)
+        note = self._get_note(pk, note_id)
+        if not can_manage_note(request.user, note):
+            raise PermissionDenied("You can only delete notes you posted yourself.")
+        note.delete()
+        latest_note = (
+            AdminNoteChange.objects.filter(
+                target_type=AdminNoteChange.TARGET_EVENT,
+                target_id=pk,
+            )
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        event.notes = latest_note.new_text if latest_note else ""
+        event.save(update_fields=["notes"])
+        changes = AdminNoteChange.objects.filter(
+            target_type=AdminNoteChange.TARGET_EVENT,
+            target_id=pk,
+        )
+        return Response(self._serialize_changes(changes))
+
+
+class EventDuplicateView(APIView):
+    def post(self, request, pk):
+        event = get_object_or_404(Event, pk=pk)
+        duplicate = Event.objects.create(
+            name=f"Copy of {event.name}",
+            venue=event.venue,
+            city=event.city,
+            description=event.description,
+            start_date=event.start_date,
+            end_date=event.end_date,
+            archived=False,
+            announcement=event.announcement,
+            notes=event.notes,
+            map_venue=event.map_venue,
+            map_visible=event.map_visible,
+            map_visible_to_vendors=event.map_visible_to_vendors,
+            loyalty_priority_deadline=event.loyalty_priority_deadline,
+            registration_deadline=event.registration_deadline,
+        )
+        duplicate.vendors.set(event.vendors.all())
+        return Response(
+            EventSerializer(duplicate, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class EventMapView(APIView):

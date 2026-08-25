@@ -6,13 +6,19 @@ import { useState, type FormEvent } from "react";
 
 import { getApiErrorMessage, apiFetch } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
+import { useAuth } from "@/lib/AuthContext";
 import { useCategories } from "@/lib/CategoriesContext";
 
-type Role = "customer" | "vendor";
+type Role = "customer" | "vendor" | "admin" | "owner";
 
 export default function AccountCreatorPage() {
   const router = useRouter();
+  const { user: currentUser } = useAuth();
   const { categories } = useCategories();
+  const isOwnerViewer = currentUser?.role === "owner";
+  const roleOptions: Role[] = isOwnerViewer
+    ? ["customer", "vendor", "admin", "owner"]
+    : ["customer", "vendor"];
 
   const [role, setRole] = useState<Role>("customer");
   const [email, setEmail] = useState("");
@@ -92,15 +98,16 @@ export default function AccountCreatorPage() {
         </Link>
         <h1 className="mb-1 text-2xl font-semibold">Account Creator</h1>
         <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
-          Create a customer or vendor account directly — it can log in immediately, no onboarding
-          needed. A vendor account created this way is auto-approved.
+          {isOwnerViewer
+            ? "Create a customer, vendor, admin, or owner account directly — it can log in immediately, no onboarding needed. A vendor account created this way is auto-approved."
+            : "Create a customer or vendor account directly — it can log in immediately, no onboarding needed. A vendor account created this way is auto-approved."}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <span className="block text-sm font-medium">Account type</span>
             <div className="mt-2 flex gap-2">
-              {(["customer", "vendor"] as Role[]).map((option) => (
+              {roleOptions.map((option) => (
                 <button
                   type="button"
                   key={option}

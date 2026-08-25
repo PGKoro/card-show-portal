@@ -3,15 +3,32 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from apps.articles.views import (
+    AdminArticleArchiveView,
+    AdminArticleDetailView,
+    AdminArticleListCreateView,
+    AdminArticlePublishView,
+    AdminArticleRestoreView,
+    AdminArticleUnpublishView,
+)
 from apps.core.views import (
     AdminCategoryDetailView,
     AdminCategoryListCreateView,
     AdminCategoryReorderView,
+    AdminHomeCarouselDetailView,
+    AdminHomeCarouselListCreateView,
+    AdminHomeCarouselReorderView,
+    AdminSiteSettingsView,
 )
 from apps.listings.views import PublicVendorListingsView
 from apps.users.views import (
     AdminCreateUserView,
+    AdminGlobalNoteDetailView,
+    AdminGlobalNoteHistoryView,
     AdminUserDetailView,
+    AdminUserImpersonateView,
+    AdminUserNoteDetailView,
+    AdminUserNoteHistoryView,
     AdminUserSearchView,
     ApproveVendorView,
     ArchiveUserView,
@@ -41,6 +58,7 @@ urlpatterns = [
     path("api/v1/listings/", include("apps.listings.urls")),
     path("api/v1/events/", include("apps.events.urls")),
     path("api/v1/venues/", include("apps.events.venue_urls")),
+    path("api/v1/articles/", include("apps.articles.urls")),
     # Rate-limited overrides for the three sensitive auth endpoints — placed
     # ahead of the dj_rest_auth includes below so these match first (same
     # path, first pattern wins). Everything else dj_rest_auth.urls handles
@@ -103,9 +121,73 @@ urlpatterns = [
         AdminCategoryDetailView.as_view(),
         name="admin-category-detail",
     ),
+    # Admin homepage carousel management (see apps.core.models.HomeCarouselSlide).
+    path(
+        "api/v1/admin/home-carousel/",
+        AdminHomeCarouselListCreateView.as_view(),
+        name="admin-home-carousel-list-create",
+    ),
+    path(
+        "api/v1/admin/home-carousel/reorder/",
+        AdminHomeCarouselReorderView.as_view(),
+        name="admin-home-carousel-reorder",
+    ),
+    path(
+        "api/v1/admin/home-carousel/<int:pk>/",
+        AdminHomeCarouselDetailView.as_view(),
+        name="admin-home-carousel-detail",
+    ),
+    # Admin site settings (Manage Website's toggles, e.g. the Articles nav
+    # tab — see apps.core.models.SiteSettings).
+    path(
+        "api/v1/admin/settings/",
+        AdminSiteSettingsView.as_view(),
+        name="admin-site-settings",
+    ),
+    # Admin article management (Article Creator — see apps.articles.models.Article).
+    path(
+        "api/v1/admin/articles/",
+        AdminArticleListCreateView.as_view(),
+        name="admin-article-list-create",
+    ),
+    path(
+        "api/v1/admin/articles/<int:pk>/",
+        AdminArticleDetailView.as_view(),
+        name="admin-article-detail",
+    ),
+    path(
+        "api/v1/admin/articles/<int:pk>/publish/",
+        AdminArticlePublishView.as_view(),
+        name="admin-article-publish",
+    ),
+    path(
+        "api/v1/admin/articles/<int:pk>/unpublish/",
+        AdminArticleUnpublishView.as_view(),
+        name="admin-article-unpublish",
+    ),
+    path(
+        "api/v1/admin/articles/<int:pk>/archive/",
+        AdminArticleArchiveView.as_view(),
+        name="admin-article-archive",
+    ),
+    path(
+        "api/v1/admin/articles/<int:pk>/restore/",
+        AdminArticleRestoreView.as_view(),
+        name="admin-article-restore",
+    ),
     # Admin user management (search + change a user's role + create/archive/
     # restore/delete accounts directly).
     path("api/v1/admin/users/", AdminUserSearchView.as_view(), name="admin-user-search"),
+    path(
+        "api/v1/admin/notes/history/",
+        AdminGlobalNoteHistoryView.as_view(),
+        name="admin-global-note-history",
+    ),
+    path(
+        "api/v1/admin/notes/history/<int:note_id>/",
+        AdminGlobalNoteDetailView.as_view(),
+        name="admin-global-note-detail",
+    ),
     path(
         "api/v1/admin/users/create/",
         AdminCreateUserView.as_view(),
@@ -128,6 +210,11 @@ urlpatterns = [
         name="archive-user",
     ),
     path(
+        "api/v1/admin/users/<int:pk>/restore/",
+        RestoreUserView.as_view(),
+        name="restore-user",
+    ),
+    path(
         "api/v1/admin/users/<int:pk>/flag/",
         FlagUserView.as_view(),
         name="flag-user",
@@ -138,11 +225,21 @@ urlpatterns = [
         name="unflag-user",
     ),
     path(
-        "api/v1/admin/users/<int:pk>/restore/",
-        RestoreUserView.as_view(),
-        name="restore-user",
+        "api/v1/admin/users/<int:pk>/history/",
+        AdminUserNoteHistoryView.as_view(),
+        name="admin-user-note-history",
     ),
-    # Public vendor directory — approved vendors only (backs /vendors and
+    path(
+        "api/v1/admin/users/<int:pk>/history/<int:note_id>/",
+        AdminUserNoteDetailView.as_view(),
+        name="admin-user-note-detail",
+    ),
+    path(
+        "api/v1/admin/users/<int:pk>/impersonate/",
+        AdminUserImpersonateView.as_view(),
+        name="admin-user-impersonate",
+    ),
+
     # the homepage's "Featured vendors").
     path("api/v1/vendors/", PublicVendorListView.as_view(), name="public-vendor-list"),
     # Public vendor profile (business info + their listings) — backs the

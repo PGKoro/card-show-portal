@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.core.models import Category
-from apps.users.models import User
+from apps.users.models import AdminNoteChange, User
 
 from .models import Booth, BoothRegistration, Event, Venue, VenueAmenity, VenueSection
 
@@ -17,6 +17,7 @@ class EventSerializer(serializers.ModelSerializer):
     status = serializers.ReadOnlyField()
     has_started = serializers.ReadOnlyField()
     vendor_count = serializers.ReadOnlyField()
+    note_count = serializers.SerializerMethodField()
     vendors = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(role=User.Role.VENDOR), many=True, required=False
     )
@@ -52,6 +53,7 @@ class EventSerializer(serializers.ModelSerializer):
             "vendors",
             "vendors_detail",
             "vendor_count",
+            "note_count",
             "status",
             "has_started",
             "archived",
@@ -59,9 +61,7 @@ class EventSerializer(serializers.ModelSerializer):
             "notes",
             "map_venue",
             "map_venue_detail",
-
             # Deliberately NOT the venue's map image here — whether a map
-
             # /map/ endpoint (see EventMapView), never on the general event
             # payload. The visibility booleans alone don't leak that.
             "map_visible",
@@ -84,10 +84,16 @@ class EventSerializer(serializers.ModelSerializer):
         if not (
             user
             and user.is_authenticated
-            and (user.is_superuser or user.role == User.Role.ADMIN)
+            and (user.is_superuser or user.role in (User.Role.ADMIN, User.Role.OWNER))
         ):
             data.pop("notes", None)
         return data
+
+    def get_note_count(self, obj):
+        return AdminNoteChange.objects.filter(
+            target_type=AdminNoteChange.TARGET_EVENT,
+            target_id=obj.pk,
+        ).count()
 
     def get_vendors_detail(self, obj):
         # Who actually has a confirmed booth at this show (see
@@ -143,8 +149,19 @@ class EventSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
+        old_notes = instance.notes
         self._sync_venue_fields(validated_data)
-        return super().update(instance, validated_data)
+        updated = super().update(instance, validated_data)
+        if old_notes != updated.notes:
+            request = self.context.get("request")
+            AdminNoteChange.objects.create(
+                target_type=AdminNoteChange.TARGET_EVENT,
+                target_id=updated.pk,
+                author=request.user if request else None,
+                old_text=old_notes,
+                new_text=updated.notes,
+            )
+        return updated
 
 
 class VenueSerializer(serializers.ModelSerializer):
