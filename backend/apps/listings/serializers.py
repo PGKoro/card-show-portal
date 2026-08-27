@@ -120,7 +120,9 @@ class ListingSerializer(serializers.ModelSerializer):
         is_serial_numbered = attrs.get(
             "is_serial_numbered", getattr(self.instance, "is_serial_numbered", False)
         )
-        copy_number = attrs.get("serial_copy_number", getattr(self.instance, "serial_copy_number", None))
+        copy_number = attrs.get(
+            "serial_copy_number", getattr(self.instance, "serial_copy_number", None)
+        )
         print_run = attrs.get("serial_print_run", getattr(self.instance, "serial_print_run", None))
         if is_serial_numbered:
             if copy_number is None or print_run is None:

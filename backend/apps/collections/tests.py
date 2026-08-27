@@ -69,7 +69,8 @@ class CollectionsBrowsingTests(APITestCase):
 
     def test_set_list_filters_by_category_year_company(self):
         response = self.client.get(
-            f"/api/v1/collections/sets/?category={self.football.slug}&year=2020&company={self.panini.pk}"
+            "/api/v1/collections/sets/"
+            f"?category={self.football.slug}&year=2020&company={self.panini.pk}"
         )
         names = {s["name"] for s in response.data["results"]}
         self.assertEqual(names, {"Prizm", "Donruss"})
@@ -185,7 +186,12 @@ class AdminCollectionsManagementTests(APITestCase):
     def test_admin_can_create_a_set(self):
         response = self.client.post(
             "/api/v1/admin/collections/sets/",
-            {"name": "Prizm", "year": 2020, "company": self.panini.pk, "category": self.football.slug},
+            {
+                "name": "Prizm",
+                "year": 2020,
+                "company": self.panini.pk,
+                "category": self.football.slug,
+            },
             format="multipart",
             **self.admin_auth(),
         )
@@ -195,7 +201,12 @@ class AdminCollectionsManagementTests(APITestCase):
     def test_non_admin_cannot_create_a_set(self):
         response = self.client.post(
             "/api/v1/admin/collections/sets/",
-            {"name": "Prizm", "year": 2020, "company": self.panini.pk, "category": self.football.slug},
+            {
+                "name": "Prizm",
+                "year": 2020,
+                "company": self.panini.pk,
+                "category": self.football.slug,
+            },
             format="multipart",
             **self.customer_auth(),
         )
@@ -207,7 +218,12 @@ class AdminCollectionsManagementTests(APITestCase):
         )
         response = self.client.post(
             "/api/v1/admin/collections/sets/",
-            {"name": "Prizm", "year": 2020, "company": self.panini.pk, "category": self.football.slug},
+            {
+                "name": "Prizm",
+                "year": 2020,
+                "company": self.panini.pk,
+                "category": self.football.slug,
+            },
             format="multipart",
             **self.admin_auth(),
         )
@@ -534,8 +550,8 @@ class ListingCardLinkTests(APITestCase):
             grade="9",
         )
         response = self.client.get(f"/api/v1/listings/public/?card={self.hurts.pk}")
-        # The public listing feed doesn't filter by card yet in this
-        # minimal integration, but the reverse relation resolves cleanly:
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["results"]), 1)
         self.hurts.refresh_from_db()
         self.assertEqual(self.hurts.listings.count(), 1)
 

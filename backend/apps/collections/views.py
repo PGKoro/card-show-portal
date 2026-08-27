@@ -136,8 +136,10 @@ class PublicSetCardListView(generics.ListAPIView):
     serializer_class = PublicCardListSerializer
 
     def get_queryset(self):
-        queryset = Card.objects.filter(set_id=self.kwargs["pk"]).annotate(Count("listings")).order_by(
-            "card_number", "player_name"
+        queryset = (
+            Card.objects.filter(set_id=self.kwargs["pk"])
+            .annotate(Count("listings"))
+            .order_by("card_number", "player_name")
         )
         search = self.request.query_params.get("search", "").strip()
         if search:
@@ -202,8 +204,12 @@ class PublicCollectionsSearchView(APIView):
 
         return Response(
             {
-                "sets": SearchResultSetSerializer(set_matches, many=True, context={"request": request}).data,
-                "cards": SearchResultCardSerializer(card_matches, many=True, context={"request": request}).data,
+                "sets": SearchResultSetSerializer(
+                    set_matches, many=True, context={"request": request}
+                ).data,
+                "cards": SearchResultCardSerializer(
+                    card_matches, many=True, context={"request": request}
+                ).data,
             }
         )
 
@@ -234,7 +240,12 @@ class AdminCompanyDetailView(generics.RetrieveUpdateDestroyAPIView):
     def perform_destroy(self, instance):
         if instance.sets.exists():
             raise ValidationError(
-                {"detail": "Can't delete a company that still has sets. Reassign or delete those sets first."}
+                {
+                    "detail": (
+                        "Can't delete a company that still has sets. "
+                        "Reassign or delete those sets first."
+                    )
+                }
             )
         instance.delete()
 

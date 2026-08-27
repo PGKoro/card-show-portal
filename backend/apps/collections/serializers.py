@@ -1,4 +1,3 @@
-from django.db.models import Max
 from rest_framework import serializers
 
 from apps.core.models import Category
@@ -46,7 +45,10 @@ class PublicCardSetListSerializer(serializers.ModelSerializer):
         )
 
     def get_category_name(self, obj):
-        return Category.objects.filter(slug=obj.category).values_list("name", flat=True).first() or obj.category
+        return (
+            Category.objects.filter(slug=obj.category).values_list("name", flat=True).first()
+            or obj.category
+        )
 
     def get_image_url(self, obj):
         if not obj.image:
@@ -337,7 +339,11 @@ class AdminCardSerializer(serializers.ModelSerializer):
             existing = existing.exclude(pk=self.instance.pk)
         if existing.exists():
             raise serializers.ValidationError(
-                {"card_number": "A card with this number/variation/player already exists in this set."}
+                {
+                    "card_number": (
+                        "A card with this number/variation/player already exists in this set."
+                    )
+                }
             )
         return attrs
 

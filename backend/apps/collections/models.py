@@ -196,4 +196,3 @@ class CardSubmission(models.Model):
 
     def __str__(self):
         return f"{self.set} #{self.card_number} {self.player_name} ({self.status})"
-
