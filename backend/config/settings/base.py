@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "apps.listings",
     "apps.events",
     "apps.articles",
+    "apps.collections",
 ]
 
 MIDDLEWARE = [

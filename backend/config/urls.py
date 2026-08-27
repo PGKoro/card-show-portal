@@ -11,6 +11,17 @@ from apps.articles.views import (
     AdminArticleRestoreView,
     AdminArticleUnpublishView,
 )
+from apps.collections.views import (
+    AdminCardDetailView,
+    AdminCardListCreateView,
+    AdminCardSetDetailView,
+    AdminCardSetListCreateView,
+    AdminCardSubmissionApproveView,
+    AdminCardSubmissionListView,
+    AdminCardSubmissionRejectView,
+    AdminCompanyDetailView,
+    AdminCompanyListCreateView,
+)
 from apps.core.views import (
     AdminCategoryDetailView,
     AdminCategoryListCreateView,
@@ -59,6 +70,7 @@ urlpatterns = [
     path("api/v1/events/", include("apps.events.urls")),
     path("api/v1/venues/", include("apps.events.venue_urls")),
     path("api/v1/articles/", include("apps.articles.urls")),
+    path("api/v1/collections/", include("apps.collections.urls")),
     # Rate-limited overrides for the three sensitive auth endpoints — placed
     # ahead of the dj_rest_auth includes below so these match first (same
     # path, first pattern wins). Everything else dj_rest_auth.urls handles
@@ -174,6 +186,53 @@ urlpatterns = [
         "api/v1/admin/articles/<int:pk>/restore/",
         AdminArticleRestoreView.as_view(),
         name="admin-article-restore",
+    ),
+    # Admin Collections management (Manage Companies/Sets/Cards/Submissions
+    # — see apps.collections.models).
+    path(
+        "api/v1/admin/collections/companies/",
+        AdminCompanyListCreateView.as_view(),
+        name="admin-collections-company-list-create",
+    ),
+    path(
+        "api/v1/admin/collections/companies/<int:pk>/",
+        AdminCompanyDetailView.as_view(),
+        name="admin-collections-company-detail",
+    ),
+    path(
+        "api/v1/admin/collections/sets/",
+        AdminCardSetListCreateView.as_view(),
+        name="admin-collections-set-list-create",
+    ),
+    path(
+        "api/v1/admin/collections/sets/<int:pk>/",
+        AdminCardSetDetailView.as_view(),
+        name="admin-collections-set-detail",
+    ),
+    path(
+        "api/v1/admin/collections/cards/",
+        AdminCardListCreateView.as_view(),
+        name="admin-collections-card-list-create",
+    ),
+    path(
+        "api/v1/admin/collections/cards/<int:pk>/",
+        AdminCardDetailView.as_view(),
+        name="admin-collections-card-detail",
+    ),
+    path(
+        "api/v1/admin/collections/submissions/",
+        AdminCardSubmissionListView.as_view(),
+        name="admin-collections-submission-list",
+    ),
+    path(
+        "api/v1/admin/collections/submissions/<int:pk>/approve/",
+        AdminCardSubmissionApproveView.as_view(),
+        name="admin-collections-submission-approve",
+    ),
+    path(
+        "api/v1/admin/collections/submissions/<int:pk>/reject/",
+        AdminCardSubmissionRejectView.as_view(),
+        name="admin-collections-submission-reject",
     ),
     # Admin user management (search + change a user's role + create/archive/
     # restore/delete accounts directly).

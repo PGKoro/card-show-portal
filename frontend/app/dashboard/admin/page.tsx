@@ -104,6 +104,12 @@ const ADMIN_SECTIONS: { title: string; tools: AdminTool[] }[] = [
         description: "Write, edit, publish, and archive articles for the public Articles page.",
         countKey: null,
       },
+      {
+        href: "/dashboard/admin/collections",
+        title: "Manage Collections",
+        description: "Manage the card registry: companies, sets, cards, and dealer submissions.",
+        countKey: null,
+      },
     ],
   },
 ];

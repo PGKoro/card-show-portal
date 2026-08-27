@@ -1,6 +1,7 @@
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
 from apps.core.permissions import IsApprovedVendor, IsVendor
@@ -15,10 +16,13 @@ class ListingListCreateView(generics.ListCreateAPIView):
     GET /api/v1/listings/ — a vendor's own listings (even while still
     pending approval, so their dashboard has something to render).
     POST /api/v1/listings/ — create a listing; requires an *approved*
-    vendor account (IsApprovedVendor), not just any vendor.
+    vendor account (IsApprovedVendor), not just any vendor. Multipart
+    parsing accepted since creating a listing always includes front/back
+    photo uploads (see ListingSerializer.validate).
     """
 
     serializer_class = ListingSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_permissions(self):
         if self.request.method == "POST":
@@ -30,6 +34,21 @@ class ListingListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         serializer.save(vendor=self.request.user)
+
+
+class ListingDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET/PATCH/DELETE /api/v1/listings/<id>/ — a vendor managing one of
+    their own listings (editing details/photos, or removing it entirely).
+    Scoped to the requesting vendor's own listings, same as the list view.
+    """
+
+    serializer_class = ListingSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    permission_classes = [IsAuthenticated, IsVendor]
+
+    def get_queryset(self):
+        return Listing.objects.filter(vendor=self.request.user)
 
 
 class PublicVendorListingsView(generics.ListAPIView):
@@ -78,6 +97,9 @@ class PublicListingListView(generics.ListAPIView):
         category = self.request.query_params.get("category", "").strip()
         if category:
             queryset = queryset.filter(category=category)
+        card = self.request.query_params.get("card", "").strip()
+        if card:
+            queryset = queryset.filter(card_id=card)
         return queryset
 
 
