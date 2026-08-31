@@ -488,10 +488,18 @@ class VendorApprovalFlowTests(APITestCase):
         self.assertEqual(approve.data["vendor_status"], User.VendorStatus.APPROVED)
 
         vendor_access = self.access_for("pendingvendor@example.com", "s3cret!23")
+        from apps.listings.tests import make_test_image
+
         create = self.client.post(
             "/api/v1/listings/",
-            {"title": "Card", "category": "vintage", "price": "10.00"},
-            format="json",
+            {
+                "title": "Card",
+                "category": "vintage",
+                "price": "10.00",
+                "front_image": make_test_image("front.png"),
+                "back_image": make_test_image("back.png"),
+            },
+            format="multipart",
             HTTP_AUTHORIZATION=f"Bearer {vendor_access}",
         )
         self.assertEqual(create.status_code, status.HTTP_201_CREATED)

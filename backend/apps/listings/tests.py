@@ -1,13 +1,26 @@
-# Listing permission behavior (pending vs approved vendor, non-vendor
-# access) is covered by apps.users.tests.VendorApprovalFlowTests, which
-# needs a real admin + approval flow already set up there.
+import io
 
+from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.users.models import User
 
 from .models import Listing
+
+
+def make_test_image(name="card.png"):
+    """A minimal valid 1x1 PNG, small enough to keep tests fast."""
+    buffer = io.BytesIO()
+    Image.new("RGB", (1, 1)).save(buffer, format="PNG")
+    buffer.seek(0)
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
+
+
+# Listing permission behavior (pending vs approved vendor, non-vendor
+# access) is covered by apps.users.tests.VendorApprovalFlowTests, which
+# needs a real admin + approval flow already set up there.
 
 
 class ListingGradingTests(APITestCase):
@@ -30,12 +43,18 @@ class ListingGradingTests(APITestCase):
         return login.data["access"]
 
     def create_listing(self, **extra):
-        payload = {"title": "Card", "category": "vintage", "price": "10.00"}
+        payload = {
+            "title": "Card",
+            "category": "vintage",
+            "price": "10.00",
+            "front_image": make_test_image("front.png"),
+            "back_image": make_test_image("back.png"),
+        }
         payload.update(extra)
         return self.client.post(
             "/api/v1/listings/",
             payload,
-            format="json",
+            format="multipart",
             HTTP_AUTHORIZATION=f"Bearer {self.access()}",
         )
 
@@ -70,6 +89,104 @@ class ListingGradingTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("grade", response.data)
 
+    def test_other_grading_company_requires_a_name(self):
+        response = self.create_listing(grading="other", grade="9")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("grading_company_other", response.data)
+
+    def test_other_grading_company_with_a_name_succeeds(self):
+        response = self.create_listing(grading="other", grade="9", grading_company_other="HGA")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["grading_company_other"], "HGA")
+
+
+class ListingRequiredFieldsTests(APITestCase):
+    """Covers the required photos / price-or-offer / serial numbering rules."""
+
+    def setUp(self):
+        self.vendor = User.objects.create_user(
+            email="fields-vendor@example.com",
+            password="s3cret!23",
+            role=User.Role.VENDOR,
+            business_name="Fields Cards Co",
+            vendor_status=User.VendorStatus.APPROVED,
+        )
+
+    def access(self):
+        login = self.client.post(
+            "/api/v1/auth/login/",
+            {"email": "fields-vendor@example.com", "password": "s3cret!23"},
+        )
+        return login.data["access"]
+
+    def create_listing(self, **extra):
+        payload = {
+            "title": "Card",
+            "category": "vintage",
+            "price": "10.00",
+            "front_image": make_test_image("front.png"),
+            "back_image": make_test_image("back.png"),
+        }
+        payload.update(extra)
+        return self.client.post(
+            "/api/v1/listings/",
+            payload,
+            format="multipart",
+            HTTP_AUTHORIZATION=f"Bearer {self.access()}",
+        )
+
+    def test_front_image_is_required(self):
+        response = self.create_listing(front_image="")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("front_image", response.data)
+
+    def test_back_image_is_required(self):
+        response = self.create_listing(back_image="")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("back_image", response.data)
+
+    def test_editing_does_not_require_reuploading_photos(self):
+        create = self.create_listing()
+        listing_id = create.data["id"]
+        response = self.client.patch(
+            f"/api/v1/listings/{listing_id}/",
+            {"description": "Updated description"},
+            format="multipart",
+            HTTP_AUTHORIZATION=f"Bearer {self.access()}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_requires_price_or_offers_or_trades(self):
+        response = self.create_listing(price="")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_accepting_offers_without_a_price_is_allowed(self):
+        response = self.create_listing(price="", accepting_offers=True)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.data["price"])
+        self.assertTrue(response.data["accepting_offers"])
+
+    def test_accepting_trades_without_a_price_is_allowed(self):
+        response = self.create_listing(price="", accepting_trades=True)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["accepting_trades"])
+
+    def test_serial_numbering_requires_both_parts(self):
+        response = self.create_listing(is_serial_numbered=True, serial_copy_number=57)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_serial_numbering_with_both_parts_succeeds(self):
+        response = self.create_listing(
+            is_serial_numbered=True, serial_copy_number=57, serial_print_run=99
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["serial_copy_number"], 57)
+        self.assertEqual(response.data["serial_print_run"], 99)
+
+    def test_rejects_serial_number_without_toggle(self):
+        response = self.create_listing(serial_copy_number=57, serial_print_run=99)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 class PublicVendorListingsTests(APITestCase):
     """Covers the public "a vendor's listings" endpoint (their profile page)."""
@@ -99,8 +216,14 @@ class PublicVendorListingsTests(APITestCase):
         ).data["access"]
         self.client.post(
             "/api/v1/listings/",
-            {"title": "My Card", "category": "vintage", "price": "10.00"},
-            format="json",
+            {
+                "title": "My Card",
+                "category": "vintage",
+                "price": "10.00",
+                "front_image": make_test_image("front.png"),
+                "back_image": make_test_image("back.png"),
+            },
+            format="multipart",
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
 
@@ -110,8 +233,14 @@ class PublicVendorListingsTests(APITestCase):
         ).data["access"]
         self.client.post(
             "/api/v1/listings/",
-            {"title": "Other Card", "category": "modern", "price": "5.00"},
-            format="json",
+            {
+                "title": "Other Card",
+                "category": "modern",
+                "price": "5.00",
+                "front_image": make_test_image("front2.png"),
+                "back_image": make_test_image("back2.png"),
+            },
+            format="multipart",
             HTTP_AUTHORIZATION=f"Bearer {other_access}",
         )
 
@@ -152,8 +281,14 @@ class PublicListingFeedTests(APITestCase):
         ).data["access"]
         self.client.post(
             "/api/v1/listings/",
-            {"title": "Rookie Card", "category": "vintage", "price": "20.00"},
-            format="json",
+            {
+                "title": "Rookie Card",
+                "category": "vintage",
+                "price": "20.00",
+                "front_image": make_test_image("front.png"),
+                "back_image": make_test_image("back.png"),
+            },
+            format="multipart",
             HTTP_AUTHORIZATION=f"Bearer {access}",
         )
 
@@ -187,6 +322,10 @@ class PublicListingFeedTests(APITestCase):
         self.assertEqual(response.data["results"], [])
         response = self.client.get("/api/v1/listings/public/?category=vintage")
         self.assertEqual(len(response.data["results"]), 1)
+
+    def test_card_filter(self):
+        response = self.client.get("/api/v1/listings/public/?card=999999")
+        self.assertEqual(response.data["results"], [])
 
 
 class PublicListingDetailTests(APITestCase):

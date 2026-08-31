@@ -46,6 +46,7 @@ export function NavBar() {
   const navLinks = [
     { href: "/vendors", label: "Browse Vendors", enabled: true },
     { href: "/cards", label: "Browse Cards", enabled: CARDS_FEATURE_ENABLED },
+    { href: "/collections", label: "Collections", enabled: true },
     { href: "/events", label: "Browse Events", enabled: true },
     { href: "/articles", label: "Articles", enabled: settings?.articles_tab_enabled ?? true },
     { href: "/set-registry", label: "Set Registry", enabled: SET_REGISTRY_FEATURE_ENABLED },

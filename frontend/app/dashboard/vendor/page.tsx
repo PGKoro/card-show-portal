@@ -1,20 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 
 import { InventoryCard } from "@/components/InventoryCard";
+import { ListingForm } from "@/components/ListingForm";
 import { Spinner } from "@/components/Spinner";
-import { apiFetch, getApiErrorMessage, type PaginatedResponse } from "@/lib/api";
+import { apiFetch, type PaginatedResponse } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { getAccessToken } from "@/lib/auth";
-import { useCategories } from "@/lib/CategoriesContext";
 import { formatEventDateRange } from "@/lib/events";
 import { CARDS_FEATURE_ENABLED } from "@/lib/features";
 import type { VendorBoothRegistration } from "@/lib/floorMap";
-import { GRADE_VALUES, GRADING_LABELS, type GradingCompany, type InventoryItem } from "@/lib/mockData";
-
-const GRADINGS = Object.keys(GRADING_LABELS) as GradingCompany[];
+import { type GradingCompany, type InventoryItem } from "@/lib/mockData";
 
 function formatRegistrationAddress(registration: VendorBoothRegistration): string {
   const parts = [registration.event_address_line1].filter(Boolean);
@@ -207,20 +205,10 @@ function toInventoryItem(listing: Listing): InventoryItem {
 
 export default function VendorDashboardPage() {
   const { user } = useAuth();
-  const { categories } = useCategories();
   const [listings, setListings] = useState<Listing[]>([]);
   const [loadingListings, setLoadingListings] = useState(CARDS_FEATURE_ENABLED);
   const [formOpen, setFormOpen] = useState(false);
   const [justAdded, setJustAdded] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("");
-  const [price, setPrice] = useState("");
-  const [grading, setGrading] = useState<GradingCompany>("ungraded");
-  const [grade, setGrade] = useState(GRADE_VALUES[0]);
-  const [description, setDescription] = useState("");
-  const [submitting, setSubmitting] = useState(false);
 
   const isApproved = user?.vendor_status === "approved";
 
@@ -238,46 +226,6 @@ export default function VendorDashboardPage() {
       cancelled = true;
     };
   }, []);
-
-  // Defaults the form's category dropdown to the first available category
-  // once the live list loads — mirrors the old hardcoded "modern" default,
-  // just resolved from real data instead. Derived at render time rather
-  // than synced via an effect, since it's just picking a fallback display
-  // value, not synchronizing with an external system.
-  const effectiveCategory = category || categories[0]?.slug || "";
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      const created = await apiFetch<Listing>("/listings/", {
-        method: "POST",
-        accessToken: getAccessToken() ?? undefined,
-        body: {
-          title,
-          category: effectiveCategory,
-          price: price || "0",
-          grading,
-          grade: grading === "ungraded" ? null : grade,
-          description,
-        },
-      });
-      setListings((current) => [created, ...current]);
-      setJustAdded(created.title);
-      setFormOpen(false);
-      setTitle("");
-      setPrice("");
-      setGrading("ungraded");
-      setGrade(GRADE_VALUES[0]);
-      setDescription("");
-    } catch (err) {
-      setError(getApiErrorMessage(err, "Could not add item. Please try again."));
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   return (
     <main className="flex-1 px-6 py-12">
@@ -341,121 +289,20 @@ export default function VendorDashboardPage() {
         )}
 
         {CARDS_FEATURE_ENABLED && formOpen && isApproved && (
-          <form
-            onSubmit={handleSubmit}
-            className="mb-8 grid grid-cols-1 gap-4 rounded-lg border border-gray-200 bg-white p-5 shadow-sm sm:grid-cols-2 dark:border-gray-800"
-          >
-            <div className="sm:col-span-2">
-              <label htmlFor="title" className="block text-sm font-medium">
-                Title
-              </label>
-              <input
-                id="title"
-                required
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. 2024 Bowman Chrome Rookie Auto"
-                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="category" className="block text-sm font-medium">
-                Category
-              </label>
-              <select
-                id="category"
-                value={effectiveCategory}
-                onChange={(e) => setCategory(e.target.value)}
-                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-              >
-                {categories.map((c) => (
-                  <option key={c.slug} value={c.slug}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="grading" className="block text-sm font-medium">
-                Grading
-              </label>
-              <select
-                id="grading"
-                value={grading}
-                onChange={(e) => setGrading(e.target.value as GradingCompany)}
-                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-              >
-                {GRADINGS.map((g) => (
-                  <option key={g} value={g}>
-                    {GRADING_LABELS[g]}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {grading !== "ungraded" && (
-              <div>
-                <label htmlFor="grade" className="block text-sm font-medium">
-                  Grade
-                </label>
-                <select
-                  id="grade"
-                  value={grade}
-                  onChange={(e) => setGrade(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-                >
-                  {GRADE_VALUES.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div>
-              <label htmlFor="price" className="block text-sm font-medium">
-                Price ($)
-              </label>
-              <input
-                id="price"
-                type="number"
-                min="0"
-                step="0.01"
-                required
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-              />
-            </div>
-
-            <div className="sm:col-span-2">
-              <label htmlFor="description" className="block text-sm font-medium">
-                Description
-              </label>
-              <textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 dark:border-gray-700 dark:bg-transparent"
-              />
-            </div>
-
-            {error && <p className="text-sm text-red-600 sm:col-span-2">{error}</p>}
-
-            <div className="sm:col-span-2">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="rounded-md bg-brand-blue px-5 py-2.5 font-medium text-white hover:bg-brand-navy disabled:opacity-50"
-              >
-                {submitting ? "Saving…" : "Save Item"}
-              </button>
-            </div>
-          </form>
+          <ListingForm
+            onCreated={(createdTitle) => {
+              setJustAdded(createdTitle);
+              setFormOpen(false);
+              // Newly created listing isn't reflected in `listings` yet —
+              // simplest correct refresh is just re-fetching the list.
+              setLoadingListings(true);
+              apiFetch<{ results: Listing[] }>("/listings/", {
+                accessToken: getAccessToken() ?? undefined,
+              })
+                .then((data) => setListings(data.results))
+                .finally(() => setLoadingListings(false));
+            }}
+          />
         )}
 
         {CARDS_FEATURE_ENABLED &&
